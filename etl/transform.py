@@ -101,8 +101,9 @@ def adicionar_vendedor_loja(df, col_nome, col_data, dim_vendedores, hist_vendedo
 # CONFIG
 # ==========================================
 
-RAW_PATH  = "data/raw/"
-GOLD_PATH = "data/gold/"
+RAW_PATH    = "data/raw/"
+OUTROS_PATH = "data/outros/"
+GOLD_PATH   = "data/gold/"
 
 os.makedirs(GOLD_PATH, exist_ok=True)
 
@@ -275,18 +276,48 @@ dim_lojas = pd.concat([
 
 print("🚗 Criando dim_veiculos...")
 
-arquivo_veiculos = glob.glob(f"{RAW_PATH}gerencial_estoque*.xlsx")[0]
-veiculos = pd.read_excel(arquivo_veiculos)
-veiculos.columns = veiculos.columns.str.strip().str.lower().str.replace(" ", "_")
-veiculos.columns = [
-    unicodedata.normalize('NFKD', col).encode('ascii','ignore').decode('utf-8')
-    for col in veiculos.columns
-]
+def _normalizar_colunas(df):
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+    df.columns = [unicodedata.normalize('NFKD', c).encode('ascii','ignore').decode('utf-8') for c in df.columns]
+    return df
 
-dim_veiculos = veiculos[["codigo", "modelo", "ano", "cor", "tipo", "placa", "situacao"]].drop_duplicates()
+veiculos = _normalizar_colunas(pd.read_excel(f"{RAW_PATH}gerencial_estoque.xlsx"))
+
+dim_veiculos = veiculos[["codigo", "modelo", "ano", "cor", "tipo", "placa", "situacao"]].drop_duplicates().copy()
 dim_veiculos["id_veiculo"] = dim_veiculos["codigo"]
 
-for col in ["modelo", "cor", "tipo", "situacao"]:
+# --- Enriquecimento de marca (R7): estoque atual → histórico de vendas → "desconhecida" ---
+
+# Passo 1: gerencial_estoque_marca.xlsx (cobertura: estoque atual)
+em = _normalizar_colunas(pd.read_excel(f"{OUTROS_PATH}gerencial_estoque_marca.xlsx"))
+em = em[["codigo", "marca"]].dropna(subset=["codigo", "marca"]).drop_duplicates(subset=["codigo"])
+em["codigo"] = pd.to_numeric(em["codigo"], errors="coerce").astype("Int64")
+dim_veiculos = dim_veiculos.merge(em.rename(columns={"marca": "_marca_estoque"}), on="codigo", how="left")
+dim_veiculos["marca"] = dim_veiculos["_marca_estoque"]
+dim_veiculos = dim_veiculos.drop(columns=["_marca_estoque"])
+
+# Passo 2: Vendas_Marca_YYYY.xlsx — marca mais recente por Código para os ainda sem marca
+vendas_marca_files = glob.glob(f"{OUTROS_PATH}Vendas_Marca_*.xlsx")
+if vendas_marca_files:
+    vm = pd.concat([_normalizar_colunas(pd.read_excel(f)) for f in vendas_marca_files], ignore_index=True)
+    date_col = next((c for c in vm.columns if c.startswith("dt")), None)
+    vm["_dt_venda"] = pd.to_datetime(vm[date_col], errors="coerce") if date_col else pd.NaT
+    vm["codigo"] = pd.to_numeric(vm["codigo"], errors="coerce")
+    vm = vm.dropna(subset=["codigo", "marca"])
+    vm["codigo"] = vm["codigo"].astype("Int64")
+    vm_latest = (
+        vm.sort_values("_dt_venda", ascending=False)
+        .drop_duplicates(subset=["codigo"])
+        [["codigo", "marca"]]
+    )
+    dim_veiculos = dim_veiculos.merge(vm_latest.rename(columns={"marca": "_marca_hist"}), on="codigo", how="left")
+    dim_veiculos["marca"] = dim_veiculos["marca"].fillna(dim_veiculos["_marca_hist"])
+    dim_veiculos = dim_veiculos.drop(columns=["_marca_hist"])
+
+# Passo 3: restantes sem marca
+dim_veiculos["marca"] = dim_veiculos["marca"].fillna("desconhecida")
+
+for col in ["marca", "modelo", "cor", "tipo", "situacao"]:
     dim_veiculos[col] = normalizar_texto(dim_veiculos[col])
 
 
@@ -386,7 +417,28 @@ fato_vendas = vendas[[
     "placa", "modelo", "cliente",
     "valor_venda", "valor_compra", "custos",
     "situacao", "data_compra", "desconto"
-]]
+]].copy()
+
+# --- F1.2: enriquecer fato_vendas com dados financeiros (R6: left join, nunca perde linhas) ---
+arquivos_comissao = glob.glob(f"{OUTROS_PATH}Vendas_comissao_*.xlsx")
+if arquivos_comissao:
+    comissoes = pd.concat(
+        [_normalizar_colunas(pd.read_excel(f)) for f in arquivos_comissao],
+        ignore_index=True
+    )
+    comissoes = (
+        comissoes[["codigo", "comissao", "impostos", "lucro", "retorno"]]
+        .rename(columns={"codigo": "id_venda"})
+        .dropna(subset=["id_venda"])
+        .drop_duplicates(subset=["id_venda"])
+    )
+    comissoes["id_venda"] = pd.to_numeric(comissoes["id_venda"], errors="coerce")
+    for col in ["comissao", "impostos", "lucro", "retorno"]:
+        comissoes[col] = pd.to_numeric(comissoes[col], errors="coerce")
+    fato_vendas = fato_vendas.merge(comissoes, on="id_venda", how="left")
+else:
+    for col in ["comissao", "impostos", "lucro", "retorno"]:
+        fato_vendas[col] = np.nan
 
 
 # ==========================================
@@ -439,37 +491,112 @@ fato_meta_loja = meta_loja[["id_loja", "ano_mes", "data_meta", "id_data", "meta_
 
 print("📅 Criando dim_data...")
 
+from datetime import date as _date
+
+_MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+_DIAS_PT  = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"]
+
+def _dias_uteis_mes(ano, mes):
+    inicio = _date(ano, mes, 1)
+    fim    = _date(ano + 1, 1, 1) if mes == 12 else _date(ano, mes + 1, 1)
+    return int(np.busday_count(inicio, fim))
+
 dim_data = pd.DataFrame({
-    "data": pd.date_range(start="2022-01-01", end="2026-12-31")
+    "data": pd.date_range(start="2022-01-01", end="2027-12-31")
 })
 
-dim_data["id_data"]      = dim_data["data"].dt.strftime("%Y%m%d").astype(int)
-dim_data["ano"]          = dim_data["data"].dt.year
-dim_data["mes"]          = dim_data["data"].dt.month
-dim_data["ano_mes"]      = dim_data["ano"] * 100 + dim_data["mes"]
-dim_data["nome_mes"]     = dim_data["data"].dt.strftime("%B")
-dim_data["ano_mes_desc"] = dim_data["data"].dt.strftime("%Y-%m")
+dim_data["id_data"]        = dim_data["data"].dt.strftime("%Y%m%d").astype(int)
+dim_data["ano"]            = dim_data["data"].dt.year
+dim_data["mes"]            = dim_data["data"].dt.month
+dim_data["ano_mes"]        = dim_data["ano"] * 100 + dim_data["mes"]
+dim_data["nome_mes"]       = dim_data["mes"].apply(lambda m: _MESES_PT[m - 1])
+dim_data["ano_mes_desc"]   = dim_data["data"].dt.strftime("%Y-%m")
+dim_data["trimestre"]      = ((dim_data["mes"] - 1) // 3) + 1
+dim_data["semestre"]       = (dim_data["mes"] > 6).astype(int) + 1
+dim_data["num_dia_semana"] = dim_data["data"].dt.dayofweek   # 0=Segunda … 6=Domingo
+dim_data["dia_semana"]     = dim_data["num_dia_semana"].apply(lambda d: _DIAS_PT[d])
+dim_data["fim_de_semana"]  = (dim_data["num_dia_semana"] >= 5).astype(int)
 
-dim_data = dim_data.drop_duplicates(subset=["id_data"])
-
-# Nota: as colunas extras (trimestre, semestre, feriados, dias úteis etc.)
-# são geradas via Power Query M no próprio Power BI — ver dim_data_M_completo.pq
+_ano_mes_uteis = (
+    dim_data[["ano", "mes"]].drop_duplicates()
+    .assign(dias_uteis_mes=lambda df: df.apply(
+        lambda r: _dias_uteis_mes(int(r["ano"]), int(r["mes"])), axis=1
+    ))
+)
+dim_data = dim_data.merge(_ano_mes_uteis, on=["ano", "mes"], how="left")
 
 
 # ==========================================
 # DIAGNÓSTICO
 # ==========================================
 
-print("\n🔍 DIAGNÓSTICO:")
-print(f"  Leads sem vendedor:          {fato_leads['id_vendedor'].eq(-1).mean():.1%}")
-print(f"  Leads sem loja:              {fato_leads['id_loja'].eq(-1).mean():.1%}")
-print(f"  Vendas sem vendedor:         {fato_vendas['id_vendedor'].eq(-1).mean():.1%}")
-print(f"  Vendas sem loja:             {fato_vendas['id_loja'].eq(-1).mean():.1%}")
-print(f"  Agendamentos sem vendedor:   {fato_agendamentos['id_vendedor'].eq(-1).mean():.1%}")
-print(f"  Agendamentos sem loja:       {fato_agendamentos['id_loja'].eq(-1).mean():.1%}")
-print(f"  Total leads:                 {len(fato_leads):,}")
-print(f"  Total vendas:                {len(fato_vendas):,}")
-print(f"  Total agendamentos:          {len(fato_agendamentos):,}")
+def _check(label, passed, detail=""):
+    status = "✅ PASS" if passed else "❌ FAIL"
+    suffix = f"  ({detail})" if detail else ""
+    print(f"  {status}  {label}{suffix}")
+    return passed
+
+print("\n🔍 DIAGNÓSTICO — match rates:")
+print(f"  Leads:        vendedor sem match {fato_leads['id_vendedor'].eq(-1).mean():.1%} | loja sem match {fato_leads['id_loja'].eq(-1).mean():.1%}")
+print(f"  Vendas:       vendedor sem match {fato_vendas['id_vendedor'].eq(-1).mean():.1%} | loja sem match {fato_vendas['id_loja'].eq(-1).mean():.1%}")
+print(f"  Agendamentos: vendedor sem match {fato_agendamentos['id_vendedor'].eq(-1).mean():.1%} | loja sem match {fato_agendamentos['id_loja'].eq(-1).mean():.1%}")
+
+print("\n📊 CONTAGENS:")
+print(f"  fato_leads:         {len(fato_leads):,}")
+print(f"  fato_vendas:        {len(fato_vendas):,}")
+print(f"  fato_agendamentos:  {len(fato_agendamentos):,}")
+print(f"  dim_veiculos:       {len(dim_veiculos):,}")
+print(f"  dim_data:           {len(dim_data):,}")
+
+# --- F1.4: critérios de aceite ---
+print("\n✔️  F1.4 — CRITÉRIOS DE ACEITE:")
+checks = []
+
+# Marca: < 5% desconhecida entre veículos não-devolvidos
+nao_devolvido = dim_veiculos[dim_veiculos["situacao"] != "devolvido"]
+marca_desc_pct = nao_devolvido["marca"].eq("desconhecida").mean()
+checks.append(_check(
+    f"Marca: desconhecida < 5% (excl. Devolvido)",
+    marca_desc_pct < 0.05,
+    f"{marca_desc_pct:.1%} desconhecida entre {len(nao_devolvido):,} veículos ativos"
+))
+
+# Comissão: cobertura >= 90%
+comissao_cob = fato_vendas["comissao"].notna().mean()
+checks.append(_check(
+    "Comissão: cobertura >= 90% em fato_vendas",
+    comissao_cob >= 0.90,
+    f"{comissao_cob:.1%} ({fato_vendas['comissao'].notna().sum():,}/{len(fato_vendas):,} linhas)"
+))
+
+# dim_data: intervalo 2022-01-01 a 2027-12-31
+data_min = dim_data["data"].min().date()
+data_max = dim_data["data"].max().date()
+checks.append(_check(
+    "dim_data: cobre 2022-01-01 a 2027-12-31",
+    str(data_min) == "2022-01-01" and str(data_max) == "2027-12-31",
+    f"{data_min} → {data_max}"
+))
+
+# dim_data: sem NULLs em trimestre, semestre, dia_semana, dias_uteis_mes
+cols_obrig = ["trimestre", "semestre", "dia_semana", "dias_uteis_mes"]
+nulls = dim_data[cols_obrig].isnull().sum().sum()
+checks.append(_check(
+    "dim_data: sem NULLs em trimestre/semestre/dia_semana/dias_uteis_mes",
+    nulls == 0,
+    f"{nulls} NULLs encontrados"
+))
+
+# fato_vendas: nenhuma linha perdida (mesmo tamanho do DataFrame de vendas antes do join)
+checks.append(_check(
+    "fato_vendas: join com comissão não descartou linhas (R6)",
+    len(fato_vendas) == len(vendas),
+    f"{len(fato_vendas):,} linhas (esperado {len(vendas):,})"
+))
+
+n_pass = sum(checks)
+print(f"\n  Resultado: {n_pass}/{len(checks)} critérios aprovados")
 
 
 # ==========================================
@@ -498,4 +625,31 @@ fato_agendamentos.to_parquet(    f"{GOLD_PATH}fato_agendamentos.parquet",     in
 fato_meta_vendedor.to_parquet(   f"{GOLD_PATH}fato_meta_vendedor.parquet",    index=False)
 fato_meta_loja.to_parquet(       f"{GOLD_PATH}fato_meta_loja.parquet",        index=False)
 
-print("✅ FINALIZADO COM SUCESSO")
+print("\n📂 VERIFICAÇÃO PÓS-SAVE (row counts gold vs memória):")
+_gold_tables = {
+    "dim_canal":           dim_canal,
+    "dim_data":            dim_data,
+    "dim_vendedores":      dim_vendedores,
+    "dim_lojas":           dim_lojas,
+    "dim_veiculos":        dim_veiculos,
+    "dim_estagio":         dim_estagio,
+    "dim_vendedor_periodo":dim_vendedor_periodo,
+    "fato_leads":          fato_leads,
+    "fato_vendas":         fato_vendas,
+    "fato_agendamentos":   fato_agendamentos,
+    "fato_meta_vendedor":  fato_meta_vendedor,
+    "fato_meta_loja":      fato_meta_loja,
+}
+_all_match = True
+for _nome, _df in _gold_tables.items():
+    _saved = pd.read_parquet(f"{GOLD_PATH}{_nome}.parquet")
+    _ok = len(_saved) == len(_df)
+    _all_match = _all_match and _ok
+    _mark = "✅" if _ok else "❌"
+    print(f"  {_mark} {_nome:<25} memória={len(_df):,}  parquet={len(_saved):,}")
+
+print()
+if _all_match and n_pass == len(checks):
+    print("✅ FINALIZADO COM SUCESSO — todos os critérios aprovados")
+else:
+    print(f"⚠️  FINALIZADO COM AVISOS — {n_pass}/{len(checks)} critérios | parquets {'OK' if _all_match else 'DIVERGENTES'}")

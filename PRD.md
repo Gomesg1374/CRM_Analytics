@@ -1,445 +1,408 @@
 # PRD — CRM Analytics | Concessionária de Veículos
 
-**Versão:** 2.0  
+**Versão:** 3.0  
 **Data:** 2026-05-19  
-**Status:** Em elaboração
+**Status:** Ativo
 
 ---
 
-## 1. Contexto e Objetivo
+## 1. Objetivo
 
-Este projeto entrega uma plataforma de analytics de CRM para uma concessionária de veículos com múltiplas lojas e equipes comerciais. O objetivo é transformar dados brutos exportados do CRM em métricas confiáveis de desempenho comercial, acompanhamento de metas e análise de funil de conversão.
+Transformar exports Excel do CRM de uma concessionária de veículos com múltiplas lojas em uma plataforma analítica open source — com ETL Python, banco PostgreSQL e dashboards no Metabase — capaz de acompanhar funil de vendas, metas, comissões e performance por loja, vendedor, canal e marca.
 
-A solução deve ser **totalmente open source**, escalável, de fácil operação pelo cliente, e sem dependência de licenças proprietárias como Power BI.
+### Stack final
 
----
-
-## 2. Domínio de Negócio
-
-### Entidades principais
-- **Lojas**: múltiplas unidades, cada uma com sua equipe de vendedores
-- **Vendedores**: mudam de loja ao longo do tempo — cada evento (lead, venda, agendamento) precisa refletir a loja do vendedor *na data do evento*
-- **Leads**: oportunidades geradas por diferentes canais (mídias, indicação, site etc.)
-- **Agendamentos**: visitas agendadas a partir de leads
-- **Vendas**: negócios fechados com veículos do estoque
-- **Veículos**: estoque com marca, modelo, ano, cor, tipo, placa
-- **Metas**: por vendedor e por loja, com periodicidade mensal
-
-### Fluxo do funil comercial
 ```
-Lead → Agendamento → Visita → Venda
+Excel (raw/ + outros/)
+        │
+        ▼
+  Python ETL            ← pandas, modularizado por entidade
+        │
+        ├─► data/silver/    ← intermediários por entidade (auditoria)
+        │
+        └─► data/gold/      ← Parquets — star schema
+                │
+                ▼
+          PostgreSQL         ← banco analítico, carregado pelo ETL
+                │
+                ▼
+           Metabase          ← dashboards open source para o cliente
 ```
 
 ---
 
-## 3. Fontes de dados
+## 2. Fontes de dados
 
-### 3.1 Camada raw — dados do CRM
+### 2.1 `data/raw/` — dados do CRM (entrada principal)
 
-| Arquivo | Descrição |
+| Arquivo | Colunas relevantes | Observação |
+|---|---|---|
+| `Leads.xlsx` | id, cliente, canal, atendente, conversão, motivo, data_criacao, ultima_integracao | Base completa de leads |
+| `Vendas_YYYY.xlsx` | Código, Dt. Venda, Vendedor, Venda, Compra, Lançamentos, Situação, Desconto | Um arquivo por ano, 2022–2026 |
+| `dados_canais_YYYY.xlsx` | codigo, canal | Canal por código de venda, um arquivo por ano |
+| `controleagendamentos.xlsx` | id, responsavel_agendamento, canal, criacao_agendamento, agendado_para, flag_agendamento, flag_visita, campanha, status, motivo, id_venda | |
+| `gerencial_estoque.xlsx` | Codigo, Modelo, Ano, Cor, Placa, Tipo, Situação | **Não tem Marca** |
+| `usuarios.xlsx` | id_usuario, nome_usuario | Cadastro de vendedores |
+| `hist_vendedor_loja.xlsx` | id_vendedor, id_loja, loja, data_inicio, data_fim | Histórico de lotação |
+| `meta_vendedor.xlsx` | id_vendedor, ano_mes, meta_qtd | Metas mensais |
+| `meta_loja.xlsx` | id_loja, ano_mes, meta_qtd | Metas mensais |
+| `de_para_canais.xlsx` | canal_origem, canal_padrao | Padronização de nomes |
+| `de_para_vendedores.xlsx` | nome_origem, nome_padrao | Padronização de nomes |
+
+### 2.2 `data/outros/` — dados complementares (a integrar)
+
+| Arquivo | Colunas relevantes | Destino no modelo |
+|---|---|---|
+| `gerencial_estoque_marca.xlsx` | Código, Marca, Modelo, Ano, Cor, Placa, Tipo | `dim_veiculos.marca` — fonte primária |
+| `Vendas_Marca_YYYY.xlsx` | Código, Dt. Venda, Marca, Modelo, Ano, Cor, Placa, Tipo, Compra, Venda, Lançamentos, Vendedor | `dim_veiculos.marca` — fallback para veículos históricos fora do estoque atual |
+| `Vendas_comissao_YYYY.xlsx` | Código, Comissão, Impostos, Lucro, Retorno | `fato_vendas.comissao / .impostos / .lucro / .retorno` |
+
+**Chave de junção universal:** `Código` em todos os arquivos de vendas = `id_venda` em `fato_vendas`.
+
+---
+
+## 3. Estado atual — o que existe e o que falta
+
+### O que já funciona
+- `etl/transform.py` processa Leads, Vendas, Canais, Agendamentos, Metas e gera 12 Parquets na camada gold
+- Resolução histórica de loja por data do evento (`adicionar_vendedor_loja`)
+- Padronização de texto e de/para antes de qualquer join
+- Diagnóstico de linhas sem match ao final de cada execução
+
+### O que está incompleto
+
+| Lacuna | Detalhe |
 |---|---|
-| `Leads.xlsx` | Base completa de leads |
-| `Vendas_YYYY.xlsx` | Vendas por ano (2022–2026) — colunas: valor_venda, valor_compra, custos, situação |
-| `dados_canais_YYYY.xlsx` | Canal de origem de cada venda por ano |
-| `controleagendamentos.xlsx` | Registro de agendamentos e visitas |
-| `gerencial_estoque.xlsx` | Estoque de veículos (sem marca) — colunas: Codigo, Modelo, Ano, Cor, Placa, Tipo, Situação |
-| `usuarios.xlsx` | Cadastro de vendedores |
-| `hist_vendedor_loja.xlsx` | Histórico de lotação vendedor → loja (com data_inicio e data_fim) |
-| `meta_vendedor.xlsx` | Metas mensais por vendedor |
-| `meta_loja.xlsx` | Metas mensais por loja |
-| `de_para_canais.xlsx` | Tabela de padronização de nomes de canal |
-| `de_para_vendedores.xlsx` | Tabela de padronização de nomes de vendedor |
-
-### 3.2 Camada outros — dados complementares a integrar
-
-Estes arquivos ficam separados porque são exportações de um módulo diferente do sistema, mas precisam ser incorporados ao pipeline:
-
-| Arquivo | Conteúdo | O que entra no modelo |
-|---|---|---|
-| `gerencial_estoque_marca.xlsx` | Estoque com coluna **Marca** | `dim_veiculos.marca` |
-| `Vendas_Marca_YYYY.xlsx` | Vendas 2022–2026 com coluna **Marca** | Enriquece `dim_veiculos.marca` para veículos históricos não encontrados no estoque atual |
-| `Vendas_comissao_YYYY.xlsx` | Vendas 2022–2026 com **Comissão, Impostos, Lucro, Retorno** | `fato_vendas.comissao`, `.impostos`, `.lucro`, `.retorno` |
-
-**Chave de junção em todos os casos:** coluna `Código` = `id_venda` (presente em todos os arquivos de vendas).
-
-> **Por que dois arquivos de veículo?**  
-> O `gerencial_estoque_marca.xlsx` traz o estoque atual com Marca. Para veículos vendidos em anos anteriores que já saíram do estoque, a Marca precisa ser buscada em `Vendas_Marca_YYYY.xlsx`. A estratégia é: primeiro tenta o estoque atual; se não encontrar pelo código, busca nos arquivos de vendas por marca.
+| `dim_veiculos` sem `marca` | `gerencial_estoque.xlsx` não tem a coluna; ela existe em `gerencial_estoque_marca.xlsx` e em `Vendas_Marca_YYYY.xlsx` |
+| `fato_vendas` sem financeiro | `comissao`, `impostos`, `lucro` e `retorno` estão em `Vendas_comissao_YYYY.xlsx`, não integrados ainda |
+| `dim_data` incompleta | Faltam: `trimestre`, `semestre`, `dia_semana`, `fim_de_semana`, `dias_uteis_mes` |
+| ETL monolítico | Um único script de 500 linhas — sem separação de responsabilidades, sem testes |
+| Sem validação de entrada | Mudança de coluna no Excel quebra silenciosamente |
+| Camada silver vazia | Intermediários não são persistidos — impossível auditar por etapa |
+| Sem banco — só Parquets | Metabase precisa de um banco SQL; hoje só há Parquets |
 
 ---
 
-## 4. Arquitetura atual
+## 4. O que construir — especificações
 
-### 4.1 Estrutura de pastas
+---
 
-```
-CRM_Analytics/
-├── data/
-│   ├── raw/          # Excels do CRM (entrada do pipeline)
-│   ├── silver/       # ⚠️ Existe como diretório mas não é utilizado
-│   ├── gold/         # Parquets — star schema pronto para consumo
-│   └── outros/       # Excels complementares (marca, comissão)
-├── etl/
-│   └── transform.py  # Script único que executa todo o ETL
-└── requirements.txt
-```
+### 4.1 Enriquecer `dim_veiculos` com Marca
 
-### 4.2 ETL atual — `etl/transform.py`
+**Problema:** `gerencial_estoque.xlsx` (fonte atual) não tem coluna `Marca`. Ela existe em dois outros arquivos.
 
-Script Python monolítico (pandas + numpy) que lê os Excels de `raw/`, processa tudo em memória e grava Parquets em `gold/`. Principais responsabilidades:
-
-- **Normalização de texto**: remove acentos, espaços e caracteres especiais via `normalizar_texto()`
-- **De/Para**: padroniza variações de nome de canal e vendedor antes de qualquer join
-- **Resolução histórica de loja**: `adicionar_vendedor_loja()` determina, para cada evento, a loja correta do vendedor *na data do evento*, usando merge com indicador para não descartar linhas sem match (id = −1 para desconhecido)
-- **Criação das dimensões e fato-tabelas**
-- **Diagnóstico**: imprime ao final o percentual de linhas sem vendedor/loja identificados
-
-### 4.3 Modelo estrela atual (star schema)
+**Lógica de enriquecimento (ordem de prioridade):**
 
 ```
-                    dim_data
-                       │
-dim_canal ─── fato_leads ─── dim_vendedores ─── dim_lojas
-                    │
-               dim_estagio
-
-dim_canal ─── fato_vendas ─── dim_vendedores ─── dim_lojas
-                    │
-               dim_veiculos ← (sem Marca ainda)
-                    │
-                dim_data
-
-         fato_agendamentos ─── dim_vendedores ─── dim_lojas
-                    │
-                dim_data ── dim_canal
-
-         fato_meta_vendedor ─── dim_vendedores
-         fato_meta_loja     ─── dim_lojas
-
-         dim_vendedor_periodo   (auditoria do histórico — não expor como relacionamento)
+1. Lê gerencial_estoque.xlsx          → base sem Marca (Codigo, Modelo, Ano, Cor, Placa, Tipo, Situação)
+2. Lê gerencial_estoque_marca.xlsx    → join por Código → preenche Marca (cobertura: estoque atual)
+3. Lê Vendas_Marca_YYYY.xlsx (2022–2026) concat
+   → para cada Código ainda sem Marca, busca no histórico de vendas
+   → pega a Marca mais recente por Código (sort Dt.Venda desc + drop_duplicates)
+4. Veículos ainda sem Marca → "desconhecida"
 ```
 
-### 4.4 Saídas atuais da camada gold
+**Schema resultante de `dim_veiculos`:**
 
-| Arquivo parquet | Tipo |
+| Coluna | Tipo | Fonte | Obrigatório |
+|---|---|---|---|
+| `id_veiculo` | int | `gerencial_estoque.Codigo` | ✅ |
+| `marca` | str | `estoque_marca.Marca` ou `Vendas_Marca.Marca` | fallback "desconhecida" |
+| `modelo` | str | `gerencial_estoque.Modelo` — normalizado | ✅ |
+| `ano` | str | `gerencial_estoque.Ano` | ✅ |
+| `cor` | str | `gerencial_estoque.Cor` — normalizado | ✅ |
+| `tipo` | str | `gerencial_estoque.Tipo` — normalizado | ✅ |
+| `placa` | str | `gerencial_estoque.Placa` | ✅ |
+| `situacao` | str | `gerencial_estoque.Situação` — normalizado | ✅ |
+
+**Critério de aceite:** nenhum `id_veiculo` com `marca = NULL`; proporção de "desconhecida" < 5% do total.
+
+---
+
+### 4.2 Enriquecer `fato_vendas` com dados financeiros
+
+**Problema:** `fato_vendas` tem valor de venda e compra, mas não tem comissão, impostos nem lucro real — que estão em `Vendas_comissao_YYYY.xlsx`.
+
+**Lógica de integração:**
+
+```
+1. Lê Vendas_comissao_YYYY.xlsx para cada ano (2022–2026) → concat
+2. Normaliza colunas: Código → id_venda, Comissão → comissao, etc.
+3. Left join com fato_vendas por id_venda = Código
+4. Linhas sem match → NaN (nenhuma linha descartada da fato_vendas)
+```
+
+**Colunas adicionadas em `fato_vendas`:**
+
+| Coluna nova | Tipo | Fonte | Descrição |
+|---|---|---|---|
+| `comissao` | float | `Vendas_comissao.Comissão` | Comissão paga ao vendedor na operação |
+| `impostos` | float | `Vendas_comissao.Impostos` | Impostos incidentes |
+| `lucro` | float | `Vendas_comissao.Lucro` | Lucro líquido da venda |
+| `retorno` | float | `Vendas_comissao.Retorno` | Retorno financeiro bruto |
+
+**Schema completo de `fato_vendas` após enriquecimento:**
+
+| Coluna | Tipo |
 |---|---|
-| `dim_canal.parquet` | Dimensão |
-| `dim_data.parquet` | Dimensão |
-| `dim_vendedores.parquet` | Dimensão |
-| `dim_lojas.parquet` | Dimensão |
-| `dim_veiculos.parquet` | Dimensão — **falta coluna `marca`** |
-| `dim_estagio.parquet` | Dimensão |
-| `dim_vendedor_periodo.parquet` | Dimensão de auditoria |
-| `fato_leads.parquet` | Fato |
-| `fato_vendas.parquet` | Fato — **faltam `comissao`, `impostos`, `retorno`** |
-| `fato_agendamentos.parquet` | Fato |
-| `fato_meta_vendedor.parquet` | Fato |
-| `fato_meta_loja.parquet` | Fato |
+| `id_venda` | int — chave |
+| `id_veiculo` | int — FK dim_veiculos |
+| `id_vendedor` | int — FK dim_vendedores |
+| `id_loja` | int — FK dim_lojas |
+| `id_canal` | int — FK dim_canal |
+| `id_data` | int — FK dim_data (YYYYMMDD) |
+| `ano_mes` | int — YYYYMM |
+| `placa` | str |
+| `modelo` | str |
+| `cliente` | str |
+| `valor_venda` | float |
+| `valor_compra` | float |
+| `custos` | float |
+| `desconto` | float |
+| `situacao` | str |
+| `comissao` | float ← **novo** |
+| `impostos` | float ← **novo** |
+| `lucro` | float ← **novo** |
+| `retorno` | float ← **novo** |
 
-### 4.5 Visualização atual
-Power BI Desktop consumindo os Parquets da camada gold. A ser substituído por solução open source.
-
----
-
-## 5. Problemas identificados
-
-### No ETL
-| # | Problema | Impacto |
-|---|---|---|
-| P1 | Script monolítico — tudo em um único `transform.py` | Difícil de testar, manter e escalar |
-| P2 | Camada silver vazia — nenhuma transformação intermediária é persistida | Impossível auditar erros por etapa |
-| P3 | Sem testes automatizados | Regressões silenciosas ao adicionar dados novos |
-| P4 | Sem validação de schema nas entradas | Quebra silenciosa se o Excel mudar de estrutura |
-| P5 | Execução manual — sem agendamento | Dados desatualizados dependem de ação humana |
-| P6 | `dim_veiculos` sem coluna `Marca` | Impossível segmentar análises por fabricante |
-| P7 | `fato_vendas` sem comissão, impostos e lucro real | Margem calculada incompleta |
-| P8 | `dim_data` com campos básicos — campos como trimestre e dias úteis ficavam no Power BI | Lógica de negócio acoplada à ferramenta de BI |
-| P9 | Dados em `data/outros/` não integrados | Análises de marca e rentabilidade indisponíveis |
-
-### Na visualização
-| # | Problema | Impacto |
-|---|---|---|
-| V1 | Power BI requer licença e conhecimento da ferramenta | Dependência e custo para o cliente |
-| V2 | Lógica de calendário em Power Query M dentro do .pbix | Lógica de negócio presa no relatório |
+**Critério de aceite:** cobertura de `comissao` não-nula ≥ 90% das linhas de `fato_vendas`.
 
 ---
 
-## 6. Arquitetura proposta
+### 4.3 Completar `dim_data`
 
-### 6.1 Stack open source
+**Problema:** `dim_data` é gerada com campos básicos; campos derivados de calendário ficavam no Power BI e precisam agora estar no ETL.
 
-```
-Excel (raw + outros)
-       │
-       ▼
-Python ETL (pandas)        ← único processador, modularizado
-       │
-       ├── data/silver/    ← intermediários persistidos (novo)
-       │
-       ▼
-data/gold/ (Parquet)
-       │
-       ▼
-    DuckDB                 ← banco analítico zero-config, lê Parquet nativamente
-       │
-       ▼
-    Metabase               ← visualização open source, amigável para não-técnicos
-```
+**Schema completo de `dim_data`:**
 
-### 6.2 Por que DuckDB?
-
-- Lê arquivos Parquet diretamente, sem ETL adicional
-- SQL completo, zero configuração de servidor
-- Rodas local junto com o ETL
-- Suportado nativamente pelo Metabase via driver JDBC
-
-### 6.3 Por que Metabase?
-
-O Metabase é a alternativa open source mais indicada para o perfil do cliente:
-
-| Critério | Metabase |
-|---|---|
-| Interface visual | ✅ Menus e filtros, sem SQL obrigatório |
-| Compartilhamento | ✅ Link direto, sem instalar nada |
-| Alertas | ✅ E-mail quando métrica ultrapassa limite |
-| Custo | ✅ Gratuito na Community Edition |
-| Hospedagem | ✅ Docker local ou servidor simples |
-| Curva de aprendizado | ✅ Mais baixa do mercado open source |
-
-Comparativo entre opções open source:
-
-| Ferramenta | Facilidade | Ideal para |
+| Coluna | Tipo | Lógica |
 |---|---|---|
-| **Metabase** | ⭐⭐⭐⭐⭐ | Usuários de negócio — **recomendado** |
-| Apache Superset | ⭐⭐⭐ | Analistas técnicos |
-| Redash | ⭐⭐⭐ | Times que preferem escrever SQL |
-| Evidence.dev | ⭐⭐ | Devs (Markdown + SQL) |
-| Grafana | ⭐⭐ | Métricas operacionais em tempo real |
+| `id_data` | int | `YYYYMMDD` — chave |
+| `data` | date | |
+| `ano` | int | `.dt.year` |
+| `mes` | int | `.dt.month` |
+| `ano_mes` | int | `ano * 100 + mes` |
+| `nome_mes` | str | "Janeiro" … "Dezembro" |
+| `ano_mes_desc` | str | "2025-01" |
+| `trimestre` | int | `ceil(mes / 3)` |
+| `semestre` | int | `1 if mes <= 6 else 2` |
+| `dia_semana` | str | "Segunda" … "Domingo" — em português |
+| `num_dia_semana` | int | 0 = Segunda … 6 = Domingo |
+| `fim_de_semana` | int | `1 if num_dia_semana >= 5 else 0` |
+| `dias_uteis_mes` | int | Dias úteis no mês (seg–sex, sem feriados nacionais) |
+
+**Critério de aceite:** cobertura de 2022-01-01 a 2027-12-31; `trimestre` e `semestre` sem NULL.
 
 ---
 
-## 7. Refatoração do ETL
+### 4.4 Refatorar o ETL
 
-### 7.1 Estrutura de pastas proposta
+**Problema:** `transform.py` é um script monolítico de ~500 linhas — impossível testar por entidade, adicionar novos dados sem risco de regressão, ou auditar erros por etapa.
+
+**Estrutura de pastas proposta:**
 
 ```
-CRM_Analytics/
-├── data/
-│   ├── raw/                      # Excels do CRM — entrada, não modificar
-│   ├── outros/                   # Excels complementares — entrada, não modificar
-│   ├── silver/                   # Intermediários persistidos por entidade
-│   └── gold/                     # Star schema final — Parquets para consumo
+etl/
+├── config.py                   # RAW_PATH, OUTROS_PATH, SILVER_PATH, GOLD_PATH, PG_*
+├── utils.py                    # normalizar_texto(), adicionar_vendedor_loja()
 │
-├── etl/
-│   ├── config.py                 # Caminhos, constantes, parâmetros globais
-│   ├── utils.py                  # normalizar_texto(), adicionar_vendedor_loja()
-│   ├── extract/
-│   │   ├── __init__.py
-│   │   ├── leads.py              # Lê e valida Leads.xlsx
-│   │   ├── vendas.py             # Lê e valida Vendas_YYYY.xlsx (todos os anos)
-│   │   ├── canais.py             # Lê e valida dados_canais_YYYY.xlsx
-│   │   ├── agendamentos.py       # Lê e valida controleagendamentos.xlsx
-│   │   ├── veiculos.py           # Lê gerencial_estoque + gerencial_estoque_marca
-│   │   ├── comissoes.py          # Lê Vendas_comissao_YYYY.xlsx (todos os anos)
-│   │   └── dimensoes_base.py     # Lê usuarios, hist_vendedor_loja, metas, de_para
-│   │
-│   ├── transform/
-│   │   ├── __init__.py
-│   │   ├── dim_veiculos.py       # Merge estoque + marca → dim_veiculos com Marca
-│   │   ├── dim_data.py           # dim_data completa (trimestre, dias úteis, etc.)
-│   │   ├── dim_canal.py
-│   │   ├── dim_vendedores.py
-│   │   ├── dim_lojas.py
-│   │   ├── fato_leads.py
-│   │   ├── fato_vendas.py        # Inclui join com comissoes → comissao, impostos, lucro
-│   │   ├── fato_agendamentos.py
-│   │   └── fato_metas.py
-│   │
-│   ├── load.py                   # Salva Parquets em gold/ + cria/atualiza DuckDB
-│   ├── validate.py               # Validações de schema e diagnóstico pós-carga
-│   └── run.py                    # Entry point: chama extract → transform → load → validate
+├── extract/
+│   ├── leads.py                # Lê Leads.xlsx → valida schema → retorna DataFrame
+│   ├── vendas.py               # Lê Vendas_YYYY.xlsx (todos os anos) → concat → valida
+│   ├── canais.py               # Lê dados_canais_YYYY.xlsx (todos os anos) → concat
+│   ├── agendamentos.py         # Lê controleagendamentos.xlsx → valida
+│   ├── veiculos.py             # Lê gerencial_estoque.xlsx + estoque_marca + Vendas_Marca
+│   ├── comissoes.py            # Lê Vendas_comissao_YYYY.xlsx (todos os anos) → concat
+│   └── dimensoes_base.py       # Lê usuarios, hist_vendedor_loja, metas, de_para_*
 │
-├── tests/
-│   ├── test_utils.py
-│   ├── test_dim_veiculos.py
-│   └── test_fato_vendas.py
+├── transform/
+│   ├── dim_veiculos.py         # Merge estoque + marca (lógica da seção 4.1)
+│   ├── dim_data.py             # Gera dim_data completa (lógica da seção 4.3)
+│   ├── dim_canal.py
+│   ├── dim_vendedores.py
+│   ├── dim_lojas.py
+│   ├── fato_leads.py
+│   ├── fato_vendas.py          # Inclui join com comissoes (lógica da seção 4.2)
+│   ├── fato_agendamentos.py
+│   └── fato_metas.py
 │
-└── requirements.txt
+├── load.py                     # Salva Parquets em gold/ + upsert no PostgreSQL
+├── validate.py                 # Checa schemas de entrada e diagnóstico pós-carga
+└── run.py                      # Entry point: extract → silver → transform → gold → load → validate
 ```
 
-### 7.2 Mudanças-chave no ETL
+**Contrato de cada módulo extract:**
+- Recebe: nenhum argumento (lê de `config.RAW_PATH` / `config.OUTROS_PATH`)
+- Retorna: DataFrame com colunas validadas e normalizadas
+- Lança: `ValueError` descritivo se coluna obrigatória não for encontrada no Excel
+- Persiste: uma cópia do resultado em `data/silver/<entidade>.parquet` (antes de qualquer join)
 
-#### `dim_veiculos` — adicionando Marca
+**Contrato de cada módulo transform:**
+- Recebe: DataFrames do extract e dimensões necessárias como parâmetros
+- Retorna: DataFrame final pronto para carga
+- Não lê arquivos — apenas transforma
+
+**Critério de aceite do refactor:** `python etl/run.py` produz os mesmos 12 Parquets com os mesmos valores; cada módulo tem pelo menos um teste unitário; `validate.py` imprime relatório de qualidade ao final.
+
+---
+
+### 4.5 Carregar dados no PostgreSQL
+
+**Problema:** Metabase precisa de um banco SQL com conector nativo; hoje só existem Parquets.
+
+**Estratégia de carga:**
+
+- ETL grava Parquets em `data/gold/` (mantido para auditoria e backup)
+- `load.py` também faz upsert de cada Parquet no PostgreSQL após a geração
+- Estratégia de upsert: truncate + insert (dados não são grandes o suficiente para precisar de merge incremental)
+- Banco: `crm_analytics`, schema: `gold`
+
+**Tabelas no PostgreSQL** (espelham exatamente os Parquets):
 
 ```
-Estratégia de enriquecimento:
-1. Lê gerencial_estoque.xlsx          → base sem Marca
-2. Lê gerencial_estoque_marca.xlsx    → join por Código → preenche Marca
-3. Lê Vendas_Marca_YYYY.xlsx (todos os anos)
-   → para veículos não encontrados no passo 2 (históricos),
-     busca Marca pelo Código da venda
-4. Veículos ainda sem Marca → valor "desconhecida"
+gold.dim_canal
+gold.dim_data
+gold.dim_vendedores
+gold.dim_lojas
+gold.dim_veiculos
+gold.dim_estagio
+gold.dim_vendedor_periodo
+gold.fato_leads
+gold.fato_vendas
+gold.fato_agendamentos
+gold.fato_meta_vendedor
+gold.fato_meta_loja
 ```
 
-Colunas resultantes em `dim_veiculos`:
+**Dependências:** `psycopg2-binary` ou `sqlalchemy` + driver PostgreSQL adicionados ao `requirements.txt`.
 
-| Coluna | Fonte |
+**Setup local (Docker):**
+
+```bash
+docker run -d \
+  --name crm-postgres \
+  -e POSTGRES_DB=crm_analytics \
+  -e POSTGRES_USER=crm \
+  -e POSTGRES_PASSWORD=crm123 \
+  -p 5432:5432 \
+  postgres:16
+```
+
+**Critério de aceite:** `load.py` conclui sem erros; row count no PostgreSQL bate com row count dos Parquets; Metabase consegue executar uma query de teste em `gold.fato_vendas`.
+
+---
+
+### 4.6 Configurar Metabase
+
+**Setup local (Docker):**
+
+```bash
+docker run -d \
+  --name crm-metabase \
+  -p 3000:3000 \
+  metabase/metabase:latest
+```
+
+**Conexão com PostgreSQL:** acessar `localhost:3000` → Admin → Databases → Add → PostgreSQL → apontar para o container `crm-postgres`.
+
+**Dashboards prioritários a construir:**
+
+| Dashboard | Métricas principais |
 |---|---|
-| `id_veiculo` | `gerencial_estoque.Codigo` |
-| `marca` | `gerencial_estoque_marca.Marca` ou `Vendas_Marca.Marca` |
-| `modelo` | `gerencial_estoque.Modelo` |
-| `ano` | `gerencial_estoque.Ano` |
-| `cor` | `gerencial_estoque.Cor` |
-| `tipo` | `gerencial_estoque.Tipo` |
-| `placa` | `gerencial_estoque.Placa` |
-| `situacao` | `gerencial_estoque.Situação` |
+| **Funil Comercial** | Leads recebidos, agendamentos, visitas, vendas; taxas de conversão por etapa; motivos de perda |
+| **Performance de Vendas** | Vendas vs. meta por vendedor e loja; ticket médio; desconto médio; margem bruta (`valor_venda − valor_compra − custos`) |
+| **Financeiro** | Lucro líquido, comissões pagas, impostos; margem líquida por loja e por vendedor |
+| **Canais e Leads** | Volume de leads por canal ao longo do tempo; conversão por canal |
+| **Estoque e Marca** | Vendas por marca e modelo; participação de mercado por marca |
 
-#### `fato_vendas` — adicionando Comissão e métricas financeiras
+**Critério de aceite:** cliente consegue navegar nos dashboards, aplicar filtros de data/loja/vendedor e exportar um relatório sem assistência.
+
+---
+
+## 5. Modelo estrela final
 
 ```
-Estratégia:
-1. Lê Vendas_comissao_YYYY.xlsx para todos os anos (2022–2026)
-2. Concat em um único DataFrame
-3. Seleciona colunas: Código, Comissão, Impostos, Retorno
-4. Join com fato_vendas por id_venda = Código
-5. Valores não encontrados → NaN (nenhuma linha descartada)
+                              dim_data
+                                 │
+dim_canal ──── fato_leads ───────┤──── dim_vendedores ──── dim_lojas
+                    │            │            │
+               dim_estagio       │     dim_vendedor_periodo
+                                 │     (auditoria — não relacionar no BI)
+dim_canal ──── fato_vendas ──────┤──── dim_vendedores ──── dim_lojas
+                    │            │
+               dim_veiculos      │    (agora com Marca + dados financeiros)
+                                 │
+        fato_agendamentos ───────┤──── dim_vendedores ──── dim_lojas
+               │                 │
+           dim_canal             │
+                                 │
+        fato_meta_vendedor ──────┴──── dim_vendedores
+        fato_meta_loja          ────── dim_lojas
 ```
 
-Colunas adicionadas em `fato_vendas`:
+---
 
-| Coluna | Fonte | Descrição |
+## 6. Regras de negócio — não quebrar
+
+| # | Regra | Onde está implementada |
 |---|---|---|
-| `comissao` | `Vendas_comissao.Comissão` | Comissão paga ao vendedor |
-| `impostos` | `Vendas_comissao.Impostos` | Impostos incidentes na operação |
-| `retorno` | `Vendas_comissao.Retorno` | Retorno financeiro bruto |
-
-#### `dim_data` — campos completos no ETL
-
-Campos a gerar em Python (não mais no Power BI):
-
-| Campo | Descrição |
-|---|---|
-| `id_data` | YYYYMMDD (chave inteira) |
-| `data` | Date |
-| `ano` | Inteiro |
-| `mes` | Inteiro |
-| `ano_mes` | YYYYMM |
-| `nome_mes` | "Janeiro" etc. |
-| `ano_mes_desc` | "2025-01" |
-| `trimestre` | 1, 2, 3 ou 4 |
-| `semestre` | 1 ou 2 |
-| `dia_semana` | "Segunda" etc. |
-| `fim_de_semana` | 0 ou 1 |
-| `dias_uteis_mes` | Count de dias úteis no mês |
+| R1 | A loja de um vendedor num evento é a loja dele **na data do evento**, não a atual | `utils.adicionar_vendedor_loja()` |
+| R2 | Nenhuma linha é descartada por falta de match — vendedor/loja desconhecido recebe `id = −1` | `utils.adicionar_vendedor_loja()` |
+| R3 | De/Para de canais e vendedores é aplicado **antes** de qualquer join | Módulos `extract/` |
+| R4 | `id_veiculo = Código` — chave consistente em todos os arquivos de vendas | `fato_vendas`, `dim_veiculos` |
+| R5 | `dim_vendedor_periodo` é tabela de auditoria — **não usar como bridge** no Metabase | Documentação de modelo |
+| R6 | Join com comissões é `left join` — `fato_vendas` nunca perde linhas por falta de comissão | `transform/fato_vendas.py` |
+| R7 | Join de Marca em `dim_veiculos` segue prioridade: estoque atual → histórico de vendas → "desconhecida" | `transform/dim_veiculos.py` |
 
 ---
 
-## 8. Modelo estrela final (após refatoração)
+## 7. Roadmap
 
-```
-                         dim_data
-                            │
-dim_canal ──── fato_leads ──┼── dim_vendedores ── dim_lojas
-                    │       │
-               dim_estagio  │
+### Fase 1 — Enriquecimento do modelo (sem refatorar estrutura)
+> Objetivo: fechar as lacunas de dados sem mudar a arquitetura do `transform.py` ainda.
+> Entrega: rodar o script atual e ter `marca` e dados financeiros disponíveis.
 
-dim_canal ──── fato_vendas ─┼── dim_vendedores ── dim_lojas
-                    │       │
-               dim_veiculos │   (agora com Marca)
-               (+ comissão, impostos, lucro, retorno)
+- [ ] **F1.1** Adicionar lógica de Marca em `dim_veiculos` no `transform.py` (seção 4.1)
+- [ ] **F1.2** Adicionar colunas financeiras em `fato_vendas` no `transform.py` (seção 4.2)
+- [ ] **F1.3** Completar `dim_data` com trimestre, semestre, dia da semana e dias úteis (seção 4.3)
+- [ ] **F1.4** Validar: row counts, cobertura de marca ≥ 95%, cobertura de comissão ≥ 90%
 
-         fato_agendamentos ─┼── dim_vendedores ── dim_lojas
-                    │       │
-                dim_canal   │
+### Fase 2 — Banco de dados e visualização
+> Objetivo: ter Metabase funcionando com dados reais, substituindo Power BI.
 
-         fato_meta_vendedor ── dim_vendedores
-         fato_meta_loja     ── dim_lojas
-```
+- [ ] **F2.1** Subir PostgreSQL via Docker
+- [ ] **F2.2** Criar script `load.py` que lê Parquets de `gold/` e faz upsert no PostgreSQL
+- [ ] **F2.3** Conectar Metabase ao PostgreSQL
+- [ ] **F2.4** Construir os 5 dashboards prioritários (seção 4.6)
+- [ ] **F2.5** Treinamento básico do cliente no Metabase
 
----
+### Fase 3 — Refatoração do ETL
+> Objetivo: deixar o código sustentável para novas entidades e novos colaboradores.
 
-## 9. Métricas de negócio esperadas nos dashboards
+- [x] **F3.1** Criar estrutura de pastas `extract/`, `transform/`, `load.py`, `validate.py`, `run.py`
+- [x] **F3.2** Extrair cada entidade para seu módulo em `extract/` com validação de schema
+- [x] **F3.3** Extrair cada tabela para seu módulo em `transform/`
+- [x] **F3.4** Implementar `validate.py` com diagnóstico de qualidade pós-carga
+- [x] **F3.5** Escrever testes unitários para `normalizar_texto()` e `adicionar_vendedor_loja()`
+- [x] **F3.6** Implementar persistência da camada silver (um Parquet por entidade raw limpa)
 
-### Funil de conversão
-- Taxa de conversão Lead → Agendamento
-- Taxa de conversão Agendamento → Venda
-- Taxa de conversão Lead → Venda (direta)
-- Motivos de perda mais frequentes por canal e por loja
+### Fase 4 — Orquestração
+> Objetivo: eliminar execução manual do ETL.
 
-### Performance comercial
-- Vendas realizadas vs. meta por vendedor e por loja
-- Ticket médio por loja / canal / vendedor / marca
-- Margem bruta (`valor_venda − valor_compra − custos`)
-- Margem líquida real (`lucro` da comissão)
-- Comissão total paga por período
-- Desconto médio concedido
-
-### Leads e canais
-- Volume de leads por canal ao longo do tempo
-- Tempo médio lead → venda
-- Custo por conversão por canal (quando disponível)
-
-### Estoque e veículos
-- Veículos mais vendidos por marca, modelo, cor, tipo
-- Participação de mercado por marca
-- Giro médio do estoque por marca/tipo
+- [ ] **F4.1** Configurar execução automática via cron ou Task Scheduler (Windows)
+- [ ] **F4.2** Adicionar notificação por e-mail em caso de falha
 
 ---
 
-## 10. Roadmap
+## 8. Dependências
 
-### Fase 1 — Integração dos dados faltantes (prioridade alta)
-**Objetivo:** fechar as lacunas mais críticas do modelo atual sem mudar a estrutura geral.
-
-- [ ] Enriquecer `dim_veiculos` com coluna `marca` (cruzar `gerencial_estoque_marca` + `Vendas_Marca_YYYY`)
-- [ ] Adicionar `comissao`, `impostos`, `retorno` em `fato_vendas` (cruzar `Vendas_comissao_YYYY`)
-- [ ] Completar `dim_data` com trimestre, semestre, dia da semana, fim de semana, dias úteis
-
-### Fase 2 — Refatoração do ETL (prioridade média)
-**Objetivo:** tornar o código escalável, testável e fácil de evoluir.
-
-- [ ] Separar `transform.py` nos módulos propostos (extract / transform / load / validate)
-- [ ] Implementar `validate.py` com checagens de schema nos Excels de entrada
-- [ ] Escrever testes unitários para `normalizar_texto()` e `adicionar_vendedor_loja()`
-- [ ] Criar `run.py` como entry point único do pipeline
-- [ ] Persistir camada silver (dados limpos por entidade, antes dos joins)
-
-### Fase 3 — Migração da visualização (prioridade média)
-**Objetivo:** substituir Power BI por Metabase sem perda de análises.
-
-- [ ] Instalar Metabase via Docker
-- [ ] Conectar ao DuckDB apontando para `data/gold/`
-- [ ] Replicar os dashboards existentes do Power BI no Metabase
-- [ ] Treinar o cliente no uso básico do Metabase
-
-### Fase 4 — Orquestração (prioridade baixa)
-**Objetivo:** eliminar a necessidade de execução manual do ETL.
-
-- [ ] Configurar execução automática via cron (simples) ou Prefect (robusto)
-- [ ] Adicionar notificação por e-mail em caso de falha no pipeline
-
----
-
-## 11. Dependências técnicas
-
-| Componente | Ferramenta | Versão mínima |
+| Componente | Ferramenta | Versão |
 |---|---|---|
-| Linguagem | Python | 3.11+ |
-| Processamento | pandas, numpy | conforme `requirements.txt` |
-| Banco analítico | DuckDB | 0.10+ |
-| Visualização | Metabase CE | 0.49+ |
-| Runtime BI | Docker | 24+ (para Metabase) |
-| Dados de entrada | Microsoft Excel (.xlsx) | — |
-
----
-
-## 12. Regras de negócio críticas (não quebrar)
-
-1. **Resolução histórica de loja**: cada evento (lead, agendamento, venda) deve refletir a loja do vendedor *na data do evento*, não a loja atual. Implementado via `adicionar_vendedor_loja()`.
-
-2. **Vendedor/loja desconhecido = −1**: nenhuma linha deve ser descartada por falta de match. Linhas sem correspondência recebem `id_vendedor = −1` e `id_loja = −1`.
-
-3. **De/Para antes de qualquer join**: a padronização de nomes de canal e vendedor deve ocorrer antes dos joins para evitar multiplicidade de registros.
-
-4. **`dim_vendedor_periodo` é apenas para auditoria**: esta tabela não deve ser usada como bridge em relacionamentos M:M na camada de visualização. O `id_loja` já vem resolvido em cada fato.
-
-5. **Chave de veículo**: `id_veiculo = Código` — a mesma chave aparece em `Vendas_*.xlsx`, `Vendas_Marca_*.xlsx`, `Vendas_comissao_*.xlsx` e `gerencial_estoque*.xlsx`. Todos os joins de veículo devem usar este campo.
+| Python | Runtime | 3.11+ |
+| pandas | Processamento | 3.x |
+| numpy | Cálculos | 2.x |
+| psycopg2-binary | Conexão PostgreSQL | 2.9+ |
+| sqlalchemy | ORM / upsert | 2.x |
+| PostgreSQL | Banco analítico | 16 (Docker) |
+| Metabase CE | Dashboards | 0.49+ (Docker) |
+| Docker | Containers | 24+ |
