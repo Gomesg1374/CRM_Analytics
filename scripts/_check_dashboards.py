@@ -6,7 +6,7 @@ CREDS = {"username": "ggguarda@gmail.com", "password": "crm@2026"}
 token = requests.post(f"{BASE}/api/session", json=CREDS).json()["id"]
 h = {"X-Metabase-Session": token}
 
-for did in [12, 13, 14, 15, 16]:
+for did in [17, 18, 19, 20, 21]:
     d     = requests.get(f"{BASE}/api/dashboard/{did}", headers=h).json()
     cards = d.get("dashcards", [])
     ok, errors = [], []
