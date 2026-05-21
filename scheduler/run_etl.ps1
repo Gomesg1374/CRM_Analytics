@@ -47,6 +47,87 @@ if (Test-Path $EnvFile) {
 $env:PYTHONIOENCODING = "utf-8"
 
 # -----------------------------------------------------------------------
+# Garante que Docker e os containers necessários estão em execução
+# -----------------------------------------------------------------------
+function Wait-DockerDaemon {
+    param([int]$TimeoutSec = 90)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        docker info 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Start-Sleep -Seconds 4
+    }
+    return $false
+}
+
+function Start-Container {
+    param([string]$Name)
+    $state = (docker inspect --format "{{.State.Status}}" $Name 2>&1).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        "  [Docker] Container '$Name' nao encontrado — verifique 'docker ps -a'" |
+            Tee-Object -FilePath $LogFile -Append
+        return $false
+    }
+    if ($state -eq "running") {
+        "  [Docker] $Name ja esta em execucao" | Tee-Object -FilePath $LogFile -Append
+        return $true
+    }
+    "  [Docker] Iniciando $Name (estava: $state)..." | Tee-Object -FilePath $LogFile -Append
+    docker start $Name 2>&1 | Out-Null
+    Start-Sleep -Seconds 4
+    $state = (docker inspect --format "{{.State.Status}}" $Name 2>&1).Trim()
+    if ($state -eq "running") {
+        "  [Docker] $Name iniciado com sucesso" | Tee-Object -FilePath $LogFile -Append
+        return $true
+    }
+    "  [Docker] AVISO: $Name nao iniciou (estado: $state)" | Tee-Object -FilePath $LogFile -Append
+    return $false
+}
+
+# Verifica se o daemon do Docker está respondendo; se não, inicia o Docker Desktop
+docker info 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    "  [Docker] Daemon nao responde — tentando iniciar Docker Desktop..." |
+        Tee-Object -FilePath $LogFile -Append
+    $dockerExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
+    if (Test-Path $dockerExe) {
+        Start-Process $dockerExe
+        "  [Docker] Aguardando daemon ficar pronto (ate 90s)..." |
+            Tee-Object -FilePath $LogFile -Append
+        if (Wait-DockerDaemon -TimeoutSec 90) {
+            "  [Docker] Daemon pronto" | Tee-Object -FilePath $LogFile -Append
+        } else {
+            "  [Docker] AVISO: daemon nao ficou pronto — carga no PostgreSQL pode falhar" |
+                Tee-Object -FilePath $LogFile -Append
+        }
+    } else {
+        "  [Docker] AVISO: Docker Desktop nao encontrado em $dockerExe" |
+            Tee-Object -FilePath $LogFile -Append
+    }
+}
+
+# Inicia os containers se estiverem parados
+Start-Container "crm-postgres" | Out-Null
+Start-Container "crm-metabase" | Out-Null
+
+# Aguarda o PostgreSQL aceitar conexoes antes de rodar o ETL
+"  [Docker] Aguardando PostgreSQL aceitar conexoes (ate 30s)..." |
+    Tee-Object -FilePath $LogFile -Append
+$pgReady = $false
+$deadline = (Get-Date).AddSeconds(30)
+while ((Get-Date) -lt $deadline) {
+    docker exec crm-postgres pg_isready -U crm -d crm_analytics 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $pgReady = $true; break }
+    Start-Sleep -Seconds 3
+}
+if ($pgReady) {
+    "  [Docker] PostgreSQL pronto" | Tee-Object -FilePath $LogFile -Append
+} else {
+    "  [Docker] AVISO: PostgreSQL nao respondeu a tempo — carga pode falhar" |
+        Tee-Object -FilePath $LogFile -Append
+}
+
+# -----------------------------------------------------------------------
 # Executa o ETL
 # -----------------------------------------------------------------------
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
