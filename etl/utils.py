@@ -27,6 +27,11 @@ def normalizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def salvar_silver(df: pd.DataFrame, nome: str) -> None:
+    df = df.copy()
+    # Coerce object columns with mixed scalar types to str to prevent pyarrow ArrowTypeError
+    for col in df.select_dtypes(include="object").columns:
+        if df[col].map(type).nunique() > 1:
+            df[col] = df[col].astype(str)
     df.to_parquet(SILVER_PATH / f"{nome}.parquet", index=False)
 
 

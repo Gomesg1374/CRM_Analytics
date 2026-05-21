@@ -43,6 +43,9 @@ if (Test-Path $EnvFile) {
     Write-Host "  .env carregado"
 }
 
+# Garante encoding UTF-8 no stdout do Python (Windows cp1252 não suporta emojis)
+$env:PYTHONIOENCODING = "utf-8"
+
 # -----------------------------------------------------------------------
 # Executa o ETL
 # -----------------------------------------------------------------------
