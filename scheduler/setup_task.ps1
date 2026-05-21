@@ -27,7 +27,7 @@
 #>
 param(
     [string]$TaskName   = "CRM_Analytics_ETL",
-    [string]$RunTime    = "07:00",
+    [string]$RunTime    = "10:30",
     [string]$ProjectDir = "",
     [switch]$NoDb
 )
@@ -67,7 +67,7 @@ $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit  (New-TimeSpan -Hours 2) `
     -RestartCount        1 `
     -RestartInterval     (New-TimeSpan -Minutes 30) `
-    -StartWhenAvailable  $true `
+    -StartWhenAvailable `
     -MultipleInstances   IgnoreNew
 
 # -----------------------------------------------------------------------
