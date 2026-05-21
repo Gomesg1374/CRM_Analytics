@@ -67,8 +67,8 @@ SQLS = {
     "funil_por_mes": """
 SELECT d.ano_mes_desc AS "Mês",
        COUNT(DISTINCT fl.id) AS "Leads",
-       COUNT(DISTINCT fa.id) FILTER (WHERE fa.flag_agendamento) AS "Agendamentos",
-       COUNT(DISTINCT fa.id) FILTER (WHERE fa.flag_visita)      AS "Visitas",
+       COUNT(DISTINCT fa.id) FILTER (WHERE fa.flag_agendamento = 1) AS "Agendamentos",
+       COUNT(DISTINCT fa.id) FILTER (WHERE fa.flag_visita = 1)      AS "Visitas",
        COUNT(DISTINCT fv.id_venda)                              AS "Vendas"
 FROM gold.dim_data d
 LEFT JOIN gold.fato_leads fl         ON fl.id_data = d.id_data
@@ -91,7 +91,7 @@ ORDER BY e.id_estagio
     "motivos_perda": """
 SELECT motivo AS "Motivo", COUNT(*) AS "Qtd"
 FROM gold.fato_leads
-WHERE perdido_flag = true
+WHERE perdido_flag = 1
   AND motivo IS NOT NULL AND motivo <> ''
 GROUP BY motivo
 ORDER BY "Qtd" DESC
@@ -107,9 +107,9 @@ ORDER BY "Leads" DESC
     "taxa_conversao_canal": """
 SELECT c.canal AS "Canal",
        COUNT(fl.id) AS "Leads",
-       COUNT(fl.id) FILTER (WHERE fl.convertido_flag) AS "Convertidos",
-       ROUND(100.0 * COUNT(fl.id) FILTER (WHERE fl.convertido_flag)
-             / NULLIF(COUNT(fl.id), 0), 1) AS "% Conversão"
+       COUNT(fl.id) FILTER (WHERE fl.convertido_flag = 1) AS "Convertidos",
+       ROUND((100.0 * COUNT(fl.id) FILTER (WHERE fl.convertido_flag = 1)
+             / NULLIF(COUNT(fl.id), 0))::numeric, 1) AS "% Conversão"
 FROM gold.fato_leads fl
 JOIN gold.dim_canal c ON fl.id_canal = c.id_canal
 GROUP BY c.canal
@@ -118,12 +118,12 @@ ORDER BY "% Conversão" DESC NULLS LAST
     "kpi_funil": """
 SELECT
   (SELECT COUNT(*) FROM gold.fato_leads)                                   AS "Total Leads",
-  (SELECT COUNT(*) FROM gold.fato_agendamentos WHERE flag_agendamento)     AS "Agendamentos",
-  (SELECT COUNT(*) FROM gold.fato_agendamentos WHERE flag_visita)          AS "Visitas",
+  (SELECT COUNT(*) FROM gold.fato_agendamentos WHERE flag_agendamento = 1) AS "Agendamentos",
+  (SELECT COUNT(*) FROM gold.fato_agendamentos WHERE flag_visita = 1)      AS "Visitas",
   (SELECT COUNT(*) FROM gold.fato_vendas)                                  AS "Vendas",
-  ROUND(100.0 *
+  ROUND((100.0 *
     (SELECT COUNT(*) FROM gold.fato_vendas) /
-    NULLIF((SELECT COUNT(*) FROM gold.fato_leads), 0), 1)                  AS "Conv. Lead→Venda (%)"
+    NULLIF((SELECT COUNT(*) FROM gold.fato_leads), 0))::numeric, 1)        AS "Conv. Lead→Venda (%)"
 """,
 
     # ── PERFORMANCE DE VENDAS ────────────────────────────────────────────────
@@ -132,8 +132,8 @@ SELECT v.nome AS "Vendedor",
        l.loja AS "Loja",
        SUM(fv.id_venda IS NOT NULL::int) AS "Vendas Realizadas",
        COALESCE(SUM(mv.meta_qtd), 0)     AS "Meta",
-       ROUND(100.0 * SUM(fv.id_venda IS NOT NULL::int) /
-             NULLIF(SUM(mv.meta_qtd), 0), 1) AS "% Atingimento"
+       ROUND((100.0 * SUM(fv.id_venda IS NOT NULL::int) /
+             NULLIF(SUM(mv.meta_qtd), 0))::numeric, 1) AS "% Atingimento"
 FROM gold.dim_vendedores v
 LEFT JOIN gold.fato_vendas fv  ON fv.id_vendedor = v.id_vendedor
 LEFT JOIN gold.dim_lojas l     ON fv.id_loja = l.id_loja
@@ -146,8 +146,8 @@ ORDER BY "Vendas Realizadas" DESC
 SELECT l.loja AS "Loja",
        COUNT(fv.id_venda)          AS "Vendas Realizadas",
        COALESCE(SUM(ml.meta_qtd), 0) AS "Meta",
-       ROUND(100.0 * COUNT(fv.id_venda) /
-             NULLIF(SUM(ml.meta_qtd), 0), 1) AS "% Atingimento"
+       ROUND((100.0 * COUNT(fv.id_venda) /
+             NULLIF(SUM(ml.meta_qtd), 0))::numeric, 1) AS "% Atingimento"
 FROM gold.dim_lojas l
 LEFT JOIN gold.fato_vendas fv     ON fv.id_loja = l.id_loja
 LEFT JOIN gold.fato_meta_loja ml  ON ml.id_loja = l.id_loja
@@ -156,8 +156,8 @@ ORDER BY l.loja
 """,
     "ticket_medio_mes": """
 SELECT d.ano_mes_desc AS "Mês",
-       ROUND(AVG(fv.valor_venda), 0)  AS "Ticket Médio (R$)",
-       ROUND(AVG(fv.desconto), 0)     AS "Desconto Médio (R$)"
+       ROUND(AVG(fv.valor_venda)::numeric, 0)  AS "Ticket Médio (R$)",
+       ROUND(AVG(fv.desconto)::numeric, 0)     AS "Desconto Médio (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_data d ON fv.id_data = d.id_data
 GROUP BY d.ano_mes_desc, d.ano_mes
@@ -167,11 +167,11 @@ ORDER BY d.ano_mes
 SELECT v.nome AS "Vendedor",
        l.loja AS "Loja",
        COUNT(fv.id_venda)                   AS "Vendas",
-       ROUND(SUM(fv.valor_venda), 0)        AS "Receita (R$)",
-       ROUND(AVG(fv.valor_venda), 0)        AS "Ticket Médio (R$)",
-       ROUND(SUM(fv.comissao), 0)           AS "Comissão (R$)",
-       ROUND(100.0 * AVG(fv.desconto /
-             NULLIF(fv.valor_venda, 0)), 1) AS "Desc. Médio (%)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0)        AS "Receita (R$)",
+       ROUND(AVG(fv.valor_venda)::numeric, 0)        AS "Ticket Médio (R$)",
+       ROUND(SUM(fv.comissao)::numeric, 0)           AS "Comissão (R$)",
+       ROUND((100.0 * AVG(fv.desconto /
+             NULLIF(fv.valor_venda, 0)))::numeric, 1) AS "Desc. Médio (%)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_vendedores v ON fv.id_vendedor = v.id_vendedor
 JOIN gold.dim_lojas l      ON fv.id_loja = l.id_loja
@@ -181,7 +181,7 @@ ORDER BY "Vendas" DESC
     "vendas_por_mes_loja": """
 SELECT d.ano_mes_desc AS "Mês", l.loja AS "Loja",
        COUNT(fv.id_venda)        AS "Vendas",
-       ROUND(SUM(fv.valor_venda), 0) AS "Receita (R$)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0) AS "Receita (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_data d  ON fv.id_data = d.id_data
 JOIN gold.dim_lojas l ON fv.id_loja = l.id_loja
@@ -192,12 +192,12 @@ ORDER BY d.ano_mes
     # ── FINANCEIRO ───────────────────────────────────────────────────────────
     "lucro_por_mes": """
 SELECT d.ano_mes_desc AS "Mês",
-       ROUND(SUM(fv.valor_venda), 0)  AS "Receita (R$)",
-       ROUND(SUM(fv.valor_compra), 0) AS "Custo Compra (R$)",
-       ROUND(SUM(fv.custos), 0)       AS "Outros Custos (R$)",
-       ROUND(SUM(fv.lucro), 0)        AS "Lucro (R$)",
-       ROUND(SUM(fv.impostos), 0)     AS "Impostos (R$)",
-       ROUND(SUM(fv.comissao), 0)     AS "Comissões (R$)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0)  AS "Receita (R$)",
+       ROUND(SUM(fv.valor_compra)::numeric, 0) AS "Custo Compra (R$)",
+       ROUND(SUM(fv.custos)::numeric, 0)       AS "Outros Custos (R$)",
+       ROUND(SUM(fv.lucro)::numeric, 0)        AS "Lucro (R$)",
+       ROUND(SUM(fv.impostos)::numeric, 0)     AS "Impostos (R$)",
+       ROUND(SUM(fv.comissao)::numeric, 0)     AS "Comissões (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_data d ON fv.id_data = d.id_data
 GROUP BY d.ano_mes_desc, d.ano_mes
@@ -206,12 +206,12 @@ ORDER BY d.ano_mes
     "margem_por_loja": """
 SELECT l.loja AS "Loja",
        COUNT(fv.id_venda)              AS "Vendas",
-       ROUND(SUM(fv.valor_venda), 0)   AS "Receita (R$)",
-       ROUND(SUM(fv.lucro), 0)         AS "Lucro (R$)",
-       ROUND(100.0 * SUM(fv.lucro) /
-             NULLIF(SUM(fv.valor_venda), 0), 1) AS "Margem (%)",
-       ROUND(SUM(fv.comissao), 0)      AS "Comissões (R$)",
-       ROUND(SUM(fv.impostos), 0)      AS "Impostos (R$)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0)   AS "Receita (R$)",
+       ROUND(SUM(fv.lucro)::numeric, 0)         AS "Lucro (R$)",
+       ROUND((100.0 * SUM(fv.lucro) /
+             NULLIF(SUM(fv.valor_venda), 0))::numeric, 1) AS "Margem (%)",
+       ROUND(SUM(fv.comissao)::numeric, 0)      AS "Comissões (R$)",
+       ROUND(SUM(fv.impostos)::numeric, 0)      AS "Impostos (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_lojas l ON fv.id_loja = l.id_loja
 GROUP BY l.loja
@@ -219,21 +219,21 @@ ORDER BY "Lucro (R$)" DESC
 """,
     "kpi_financeiro": """
 SELECT
-  ROUND(SUM(valor_venda), 0)  AS "Receita Total (R$)",
-  ROUND(SUM(lucro), 0)        AS "Lucro Total (R$)",
-  ROUND(SUM(comissao), 0)     AS "Comissões Pagas (R$)",
-  ROUND(SUM(impostos), 0)     AS "Impostos (R$)",
-  ROUND(100.0 * SUM(lucro) /
-        NULLIF(SUM(valor_venda), 0), 1) AS "Margem Líquida (%)"
+  ROUND(SUM(valor_venda)::numeric, 0)  AS "Receita Total (R$)",
+  ROUND(SUM(lucro)::numeric, 0)        AS "Lucro Total (R$)",
+  ROUND(SUM(comissao)::numeric, 0)     AS "Comissões Pagas (R$)",
+  ROUND(SUM(impostos)::numeric, 0)     AS "Impostos (R$)",
+  ROUND((100.0 * SUM(lucro) /
+        NULLIF(SUM(valor_venda), 0))::numeric, 1) AS "Margem Líquida (%)"
 FROM gold.fato_vendas
 """,
     "retorno_por_mes": """
 SELECT d.ano_mes_desc AS "Mês",
        COUNT(fv.id_venda) FILTER (WHERE fv.situacao = 'Devolvido') AS "Devoluções",
        COUNT(fv.id_venda) FILTER (WHERE fv.situacao != 'Devolvido') AS "Vendas Efetivas",
-       ROUND(100.0 *
+       ROUND((100.0 *
          COUNT(fv.id_venda) FILTER (WHERE fv.situacao = 'Devolvido') /
-         NULLIF(COUNT(fv.id_venda), 0), 1) AS "% Devoluções"
+         NULLIF(COUNT(fv.id_venda), 0))::numeric, 1) AS "% Devoluções"
 FROM gold.fato_vendas fv
 JOIN gold.dim_data d ON fv.id_data = d.id_data
 GROUP BY d.ano_mes_desc, d.ano_mes
@@ -253,10 +253,10 @@ ORDER BY d.ano_mes
     "conversao_canal_detalhe": """
 SELECT c.canal AS "Canal",
        COUNT(fl.id)                                              AS "Leads Recebidos",
-       COUNT(fl.id) FILTER (WHERE fl.convertido_flag)           AS "Convertidos",
-       COUNT(fl.id) FILTER (WHERE fl.perdido_flag)              AS "Perdidos",
-       ROUND(100.0 * COUNT(fl.id) FILTER (WHERE fl.convertido_flag)
-             / NULLIF(COUNT(fl.id), 0), 1)                      AS "Taxa Conversão (%)"
+       COUNT(fl.id) FILTER (WHERE fl.convertido_flag = 1)           AS "Convertidos",
+       COUNT(fl.id) FILTER (WHERE fl.perdido_flag = 1)              AS "Perdidos",
+       ROUND((100.0 * COUNT(fl.id) FILTER (WHERE fl.convertido_flag = 1)
+             / NULLIF(COUNT(fl.id), 0))::numeric, 1)             AS "Taxa Conversão (%)"
 FROM gold.fato_leads fl
 JOIN gold.dim_canal c ON fl.id_canal = c.id_canal
 GROUP BY c.canal
@@ -264,10 +264,10 @@ ORDER BY "Leads Recebidos" DESC
 """,
     "agendamentos_por_canal": """
 SELECT c.canal AS "Canal",
-       COUNT(*) FILTER (WHERE fa.flag_agendamento) AS "Agendamentos",
-       COUNT(*) FILTER (WHERE fa.flag_visita)      AS "Visitas",
-       ROUND(100.0 * COUNT(*) FILTER (WHERE fa.flag_visita) /
-             NULLIF(COUNT(*) FILTER (WHERE fa.flag_agendamento), 0), 1) AS "% Visita/Agend."
+       COUNT(*) FILTER (WHERE fa.flag_agendamento = 1) AS "Agendamentos",
+       COUNT(*) FILTER (WHERE fa.flag_visita = 1)      AS "Visitas",
+       ROUND((100.0 * COUNT(*) FILTER (WHERE fa.flag_visita = 1) /
+             NULLIF(COUNT(*) FILTER (WHERE fa.flag_agendamento = 1), 0))::numeric, 1) AS "% Visita/Agend."
 FROM gold.fato_agendamentos fa
 JOIN gold.dim_canal c ON fa.id_canal = c.id_canal
 GROUP BY c.canal
@@ -277,8 +277,8 @@ ORDER BY "Agendamentos" DESC
 SELECT c.canal AS "Canal",
        COUNT(DISTINCT fl.id) AS "Leads",
        COUNT(DISTINCT fv.id_venda) AS "Vendas",
-       ROUND(100.0 * COUNT(DISTINCT fv.id_venda) /
-             NULLIF(COUNT(DISTINCT fl.id), 0), 1) AS "Conversão (%)"
+       ROUND((100.0 * COUNT(DISTINCT fv.id_venda) /
+             NULLIF(COUNT(DISTINCT fl.id), 0))::numeric, 1) AS "Conversão (%)"
 FROM gold.dim_canal c
 LEFT JOIN gold.fato_leads fl  ON fl.id_canal = c.id_canal
 LEFT JOIN gold.fato_vendas fv ON fv.id_canal = c.id_canal
@@ -290,10 +290,10 @@ ORDER BY "Leads" DESC
     "vendas_por_marca": """
 SELECT v.marca AS "Marca",
        COUNT(fv.id_venda)              AS "Unidades Vendidas",
-       ROUND(SUM(fv.valor_venda), 0)   AS "Receita (R$)",
-       ROUND(SUM(fv.lucro), 0)         AS "Lucro (R$)",
-       ROUND(100.0 * COUNT(fv.id_venda) /
-             NULLIF(SUM(COUNT(fv.id_venda)) OVER (), 0), 1) AS "Market Share (%)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0)   AS "Receita (R$)",
+       ROUND(SUM(fv.lucro)::numeric, 0)         AS "Lucro (R$)",
+       ROUND((100.0 * COUNT(fv.id_venda) /
+             NULLIF(SUM(COUNT(fv.id_venda)) OVER (), 0))::numeric, 1) AS "Market Share (%)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_veiculos v ON fv.id_veiculo = v.id_veiculo
 WHERE v.marca IS NOT NULL AND v.marca <> 'desconhecida'
@@ -303,8 +303,8 @@ ORDER BY "Unidades Vendidas" DESC
     "top_modelos": """
 SELECT v.modelo AS "Modelo", v.marca AS "Marca",
        COUNT(fv.id_venda)             AS "Unidades",
-       ROUND(SUM(fv.valor_venda), 0)  AS "Receita (R$)",
-       ROUND(AVG(fv.valor_venda), 0)  AS "Ticket Médio (R$)"
+       ROUND(SUM(fv.valor_venda)::numeric, 0)  AS "Receita (R$)",
+       ROUND(AVG(fv.valor_venda)::numeric, 0)  AS "Ticket Médio (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_veiculos v ON fv.id_veiculo = v.id_veiculo
 WHERE v.modelo IS NOT NULL
@@ -325,7 +325,7 @@ ORDER BY d.ano_mes
     "perfil_veiculo_vendido": """
 SELECT v.tipo AS "Tipo", v.cor AS "Cor",
        COUNT(fv.id_venda)              AS "Vendas",
-       ROUND(AVG(fv.valor_venda), 0)   AS "Ticket Médio (R$)"
+       ROUND(AVG(fv.valor_venda)::numeric, 0)   AS "Ticket Médio (R$)"
 FROM gold.fato_vendas fv
 JOIN gold.dim_veiculos v ON fv.id_veiculo = v.id_veiculo
 WHERE v.tipo IS NOT NULL
