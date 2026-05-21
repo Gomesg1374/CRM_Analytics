@@ -389,8 +389,8 @@ dim_canal ──── fato_vendas ──────┤──── dim_vendedo
 ### Fase 4 — Orquestração
 > Objetivo: eliminar execução manual do ETL.
 
-- [ ] **F4.1** Configurar execução automática via cron ou Task Scheduler (Windows)
-- [ ] **F4.2** Adicionar notificação por e-mail em caso de falha
+- [x] **F4.1** Configurar execução automática via cron ou Task Scheduler (Windows)
+- [x] **F4.2** Adicionar notificação por e-mail em caso de falha
 
 ---
 

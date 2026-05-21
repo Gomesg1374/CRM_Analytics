@@ -9,6 +9,7 @@ Produces the same 12 Parquet files in data/gold/ as the legacy etl/transform.py.
 """
 import argparse
 import sys
+import traceback
 
 import pandas as pd
 
@@ -128,5 +129,22 @@ if __name__ == "__main__":
     parser.add_argument("--no-db", action="store_true", help="Pula a carga no PostgreSQL")
     args = parser.parse_args()
 
-    failures = main(load_db=not args.no_db)
+    from etl.notify import send_failure_email
+
+    failures = 0
+    try:
+        failures = main(load_db=not args.no_db)
+    except Exception:
+        tb = traceback.format_exc()
+        print(f"\n❌ Erro inesperado:\n{tb}")
+        send_failure_email("Erro inesperado no ETL", tb)
+        sys.exit(1)
+
+    if failures > 0:
+        send_failure_email(
+            f"ETL concluído com {failures} critério(s) não aprovado(s)",
+            f"{failures} critério(s) de qualidade falharam.\n"
+            "Verifique os logs em logs/ para detalhes.",
+        )
+
     sys.exit(0 if failures == 0 else 1)

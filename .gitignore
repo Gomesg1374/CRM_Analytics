@@ -8,3 +8,5 @@ data/outros/
 .vscode/
 *.xlsx
 *.xls
+logs/*.log
+.env
