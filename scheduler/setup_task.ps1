@@ -76,7 +76,7 @@ $Settings = New-ScheduledTaskSettingsSet `
 $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $Principal = New-ScheduledTaskPrincipal `
     -UserId   $CurrentUser `
-    -LogonType S4U `
+    -LogonType Interactive `
     -RunLevel Highest
 
 # -----------------------------------------------------------------------
