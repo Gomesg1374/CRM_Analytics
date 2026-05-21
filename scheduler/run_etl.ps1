@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Wrapper que executa o pipeline CRM Analytics ETL.
     Chamado pelo Task Scheduler (ou diretamente para testes manuais).
@@ -64,7 +64,7 @@ function Start-Container {
     param([string]$Name)
     $state = (docker inspect --format "{{.State.Status}}" $Name 2>&1).Trim()
     if ($LASTEXITCODE -ne 0) {
-        "  [Docker] Container '$Name' nao encontrado — verifique 'docker ps -a'" |
+        "  [Docker] Container '$Name' nao encontrado -- verifique 'docker ps -a'" |
             Tee-Object -FilePath $LogFile -Append
         return $false
     }
@@ -87,7 +87,7 @@ function Start-Container {
 # Verifica se o daemon do Docker está respondendo; se não, inicia o Docker Desktop
 docker info 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    "  [Docker] Daemon nao responde — tentando iniciar Docker Desktop..." |
+    "  [Docker] Daemon nao responde -- tentando iniciar Docker Desktop..." |
         Tee-Object -FilePath $LogFile -Append
     $dockerExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
     if (Test-Path $dockerExe) {
@@ -97,7 +97,7 @@ if ($LASTEXITCODE -ne 0) {
         if (Wait-DockerDaemon -TimeoutSec 90) {
             "  [Docker] Daemon pronto" | Tee-Object -FilePath $LogFile -Append
         } else {
-            "  [Docker] AVISO: daemon nao ficou pronto — carga no PostgreSQL pode falhar" |
+            "  [Docker] AVISO: daemon nao ficou pronto -- carga no PostgreSQL pode falhar" |
                 Tee-Object -FilePath $LogFile -Append
         }
     } else {
@@ -123,7 +123,7 @@ while ((Get-Date) -lt $deadline) {
 if ($pgReady) {
     "  [Docker] PostgreSQL pronto" | Tee-Object -FilePath $LogFile -Append
 } else {
-    "  [Docker] AVISO: PostgreSQL nao respondeu a tempo — carga pode falhar" |
+    "  [Docker] AVISO: PostgreSQL nao respondeu a tempo -- carga pode falhar" |
         Tee-Object -FilePath $LogFile -Append
 }
 
@@ -134,14 +134,14 @@ $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
 $Args   = @("-m", "etl.run")
 if ($NoDb) { $Args += "--no-db" }
 
-"=== CRM Analytics ETL — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
+"=== CRM Analytics ETL -- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
     Tee-Object -FilePath $LogFile
 
 & $Python @Args *>&1 | Tee-Object -FilePath $LogFile -Append
 
 $ExitCode = $LASTEXITCODE
 
-"`n=== Finalizado com exit code $ExitCode — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
+"`n=== Finalizado com exit code $ExitCode -- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
     Tee-Object -FilePath $LogFile -Append
 
 # -----------------------------------------------------------------------
