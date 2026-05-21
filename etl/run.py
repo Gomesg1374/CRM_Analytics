@@ -9,6 +9,7 @@ Produces the same 12 Parquet files in data/gold/ as the legacy etl/transform.py.
 """
 import argparse
 import sys
+import time
 import traceback
 
 import pandas as pd
@@ -38,6 +39,57 @@ from etl.transform.fato_metas    import build_fato_metas
 from etl.validate import validate
 
 
+def _build_success_summary(gold_tables: dict, n_vendas_raw: int,
+                           failures: int, pg_result: str, duration_s: float) -> str:
+    lines = [f"Duração: {duration_s:.0f}s", ""]
+
+    lines.append("TABELAS (gold/)")
+    total = 0
+    for nome, df in gold_tables.items():
+        lines.append(f"  {nome:<28} {len(df):,} linhas")
+        total += len(df)
+    lines.append(f"  {'─' * 44}")
+    lines.append(f"  {'TOTAL':<28} {total:,} linhas em {len(gold_tables)} tabelas")
+
+    lines += ["", "CRITÉRIOS DE ACEITE"]
+    fv = gold_tables.get("fato_vendas")
+    dv = gold_tables.get("dim_veiculos")
+    dd = gold_tables.get("dim_data")
+
+    if dv is not None:
+        nao_dev = dv[dv["situacao"] != "devolvido"]
+        pct = nao_dev["marca"].eq("desconhecida").mean()
+        lines.append(f"  {'OK' if pct < 0.05 else 'FAIL'}  Marca desconhecida: {pct:.1%} em {len(nao_dev):,} veículos ativos (< 5%)")
+    if fv is not None and "comissao" in fv.columns:
+        cob = fv["comissao"].notna().mean()
+        lines.append(f"  {'OK' if cob >= 0.90 else 'FAIL'}  Comissão: cobertura {cob:.1%} em {fv['comissao'].notna().sum():,}/{len(fv):,} linhas (>= 90%)")
+    if dd is not None:
+        d_min, d_max = dd["data"].min().date(), dd["data"].max().date()
+        ok = str(d_min) == "2022-01-01" and str(d_max) == "2027-12-31"
+        lines.append(f"  {'OK' if ok else 'FAIL'}  dim_data: {d_min} → {d_max}")
+        nulls = dd[["trimestre", "semestre", "dia_semana", "dias_uteis_mes"]].isnull().sum().sum()
+        lines.append(f"  {'OK' if nulls == 0 else 'FAIL'}  dim_data: {nulls} NULLs em colunas de calendário")
+    if fv is not None:
+        ok = len(fv) == n_vendas_raw
+        lines.append(f"  {'OK' if ok else 'FAIL'}  fato_vendas: {len(fv):,} linhas — {'sem perda no join com comissao' if ok else f'esperado {n_vendas_raw:,}'}")
+
+    passed = 5 - failures
+    lines.append(f"  Resultado: {passed}/5 aprovados")
+
+    lines += ["", "MATCH RATES"]
+    for nome, label in [("fato_leads", "Leads"), ("fato_vendas", "Vendas"), ("fato_agendamentos", "Agendamentos")]:
+        df = gold_tables.get(nome)
+        if df is None:
+            continue
+        pv = df["id_vendedor"].eq(-1).mean() if "id_vendedor" in df.columns else float("nan")
+        pl = df["id_loja"].eq(-1).mean()     if "id_loja"     in df.columns else float("nan")
+        lines.append(f"  {label:<14} vendedor {pv:.1%} | loja {pl:.1%}")
+
+    lines += ["", "POSTGRESQL", f"  {pg_result}"]
+
+    return "\n".join(lines)
+
+
 def _save_gold(tables: dict) -> None:
     for nome, df in tables.items():
         for col in ["id_vendedor", "id_loja", "id_canal"]:
@@ -47,7 +99,8 @@ def _save_gold(tables: dict) -> None:
         print(f"  💾 {nome:<28} {len(df):,} linhas")
 
 
-def main(load_db: bool = True) -> int:
+def main(load_db: bool = True) -> tuple[int, str]:
+    t0 = time.time()
     # ------------------------------------------------------------------
     # 1. Extract  (writes silver/)
     # ------------------------------------------------------------------
@@ -112,16 +165,23 @@ def main(load_db: bool = True) -> int:
     # ------------------------------------------------------------------
     # 6. Load to PostgreSQL (optional)
     # ------------------------------------------------------------------
+    pg_result = "pulado (--no-db)"
     if load_db:
         try:
             from etl.load import load
             print("\n🗄  CARREGANDO NO POSTGRESQL")
             load()
+            total = sum(len(df) for df in gold_tables.values())
+            pg_result = f"OK — {total:,} linhas em {len(gold_tables)} tabelas, todos os counts batem"
         except Exception as exc:
             print(f"  ⚠️  Carga no PostgreSQL falhou: {exc}")
             print("      Execute 'python etl/load.py' após verificar a conexão.")
+            pg_result = f"FALHOU — {exc}"
 
-    return failures
+    summary = _build_success_summary(
+        gold_tables, len(vendas_raw), failures, pg_result, time.time() - t0
+    )
+    return failures, summary
 
 
 if __name__ == "__main__":
@@ -129,11 +189,11 @@ if __name__ == "__main__":
     parser.add_argument("--no-db", action="store_true", help="Pula a carga no PostgreSQL")
     args = parser.parse_args()
 
-    from etl.notify import send_failure_email
+    from etl.notify import send_failure_email, send_success_email
 
-    failures = 0
+    failures, summary = 0, ""
     try:
-        failures = main(load_db=not args.no_db)
+        failures, summary = main(load_db=not args.no_db)
     except Exception:
         tb = traceback.format_exc()
         print(f"\n❌ Erro inesperado:\n{tb}")
@@ -143,8 +203,9 @@ if __name__ == "__main__":
     if failures > 0:
         send_failure_email(
             f"ETL concluído com {failures} critério(s) não aprovado(s)",
-            f"{failures} critério(s) de qualidade falharam.\n"
-            "Verifique os logs em logs/ para detalhes.",
+            f"{failures} critério(s) de qualidade falharam.\nVerifique os logs em logs/ para detalhes.\n\n{summary}",
         )
+    else:
+        send_success_email(summary)
 
     sys.exit(0 if failures == 0 else 1)
