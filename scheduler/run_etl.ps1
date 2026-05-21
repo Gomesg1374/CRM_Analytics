@@ -50,7 +50,7 @@ $env:PYTHONIOENCODING = "utf-8"
 # Executa o ETL
 # -----------------------------------------------------------------------
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
-$Args   = @((Join-Path $ProjectDir "etl\run.py"))
+$Args   = @("-m", "etl.run")
 if ($NoDb) { $Args += "--no-db" }
 
 "=== CRM Analytics ETL — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
