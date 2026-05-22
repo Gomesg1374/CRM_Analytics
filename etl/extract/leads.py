@@ -3,14 +3,23 @@ Reads Leads.xlsx, validates schema, applies de/para for canal (R3),
 computes flags and id_data, saves to silver/leads.parquet.
 """
 import pandas as pd
-from etl.config import RAW_PATH
+from etl.config import RAW_PATH, OUTROS_PATH
 from etl.utils import normalizar_colunas, normalizar_texto, salvar_silver, _validate_schema
 
 REQUIRED = {"id", "cliente", "canal", "atendente", "conversao", "motivo", "data_criacao", "ultima_integracao"}
 
 
 def extract_leads() -> pd.DataFrame:
-    df = normalizar_colunas(pd.read_excel(RAW_PATH / "Leads.xlsx"))
+    df = pd.read_excel(RAW_PATH / "Leads.xlsx")
+
+    acertos_path = OUTROS_PATH / "acerto_leads.xlsx"
+    if acertos_path.exists():
+        df_acertos = pd.read_excel(acertos_path)
+        ids_acertos = df_acertos["Id"].dropna()
+        df = df[~df["Id"].isin(ids_acertos)]
+        df = pd.concat([df, df_acertos], ignore_index=True)
+
+    df = normalizar_colunas(df)
     _validate_schema(df, REQUIRED, "Leads.xlsx")
 
     df["data_criacao"]      = pd.to_datetime(df["data_criacao"],      errors="coerce")
