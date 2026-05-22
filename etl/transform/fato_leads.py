@@ -42,5 +42,7 @@ def build_fato_leads(
             .drop_duplicates(subset=["id"])
         )
         fl = fl.merge(sdr, on="id", how="left")
+        # NULL = sem agendamento (semanticamente correto, não usa -1)
+        fl["id_sdr"] = fl["id_sdr"].astype("Int64")
 
     return fl
