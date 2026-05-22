@@ -1,6 +1,6 @@
 # Relatório de Atividades — Projeto CRM Analytics
 
-**Analista:** Gildo Gao  
+**Analista:** Gildo Gomes Guarda 
 **Data:** Maio de 2026  
 **Área:** Dados e Inteligência Comercial
 
@@ -8,7 +8,7 @@
 
 ## 1. Contexto
 
-A empresa opera uma rede de concessionárias de veículos com múltiplas lojas. O CRM utilizado (Pipedrive) armazena os dados de leads, atendimentos e conversões, mas não possui integração nativa com o sistema interno de vendas e controle de estoque. Os dados de comissão, custo de aquisição do veículo, marca e outros indicadores financeiros residem em sistemas separados.
+A empresa opera uma rede de concessionárias de veículos com múltiplas lojas. O CRM utilizado (Revenda+) armazena os dados de leads, atendimentos e conversões, mas não possui integração nativa com o sistema interno de vendas e controle de estoque. Os dados de comissão, custo de aquisição do veículo, marca e outros indicadores financeiros residem em sistemas separados.
 
 Antes da construção deste projeto, toda a consolidação e análise desses dados era feita manualmente pelo analista, semana a semana, com risco elevado de inconsistências e sem rastreabilidade.
 
@@ -22,7 +22,7 @@ A cada ciclo de análise (semanal ou mensal), as seguintes exportações precisa
 
 | Arquivo | Sistema de origem | Frequência de download |
 |---|---|---|
-| `Leads.xlsx` | CRM Pipedrive (exportação completa) | Semanal |
+| `Leads.xlsx` | CRM Revenda+ (exportação completa) | Semanal |
 | `Vendas_YYYY.xlsx` | Sistema interno de vendas | Mensal (um arquivo por ano) |
 | `dados_canais_YYYY.xlsx` | Sistema interno | Mensal |
 | `gerencial_estoque.xlsx` | Sistema de gestão de estoque | Semanal |
@@ -49,7 +49,7 @@ O passo mais trabalhoso era consolidar as informações de fontes diferentes:
 - **Agendamentos → Leads:** Identificação manual de qual agendamento correspondia a qual lead.
 - **Comissão → Venda:** Junção manual entre a planilha financeira de comissões e os registros de venda.
 
-Esse processo consumia entre **4 e 8 horas adicionais** por ciclo e era altamente suscetível a erros humanos.
+Esse processo consumia entre **2 e 4 horas adicionais** por ciclo e era altamente suscetível a erros humanos.
 
 ---
 
@@ -62,7 +62,7 @@ Para que a automação funcionasse com qualidade, foi necessário construir e ma
 **Localização:** `data/raw/usuarios.xlsx`  
 **Registros:** 29 vendedores
 
-Tabela com o cadastro completo de todos os vendedores que atuaram nas lojas desde 2022. Não havia nenhum cadastro centralizado disponível — os dados foram levantados consultando registros históricos de RH, contracheques e registros do CRM.
+Tabela com o cadastro completo de todos os vendedores que atuaram nas lojas desde 2022. Não havia nenhum cadastro centralizado disponível — os dados foram levantados consultando registros históricos de vendas,  e registros do CRM.
 
 | Campo | Descrição |
 |---|---|
@@ -72,7 +72,7 @@ Tabela com o cadastro completo de todos os vendedores que atuaram nas lojas desd
 | `data_demissao` | Data de saída (em branco se ainda ativo) |
 | `status` | Ativo / Inativo |
 
-**Trabalho envolvido:** Identificação de todos os vendedores históricos, consulta a registros de RH para datas exatas, padronização dos nomes conforme grafias mais comuns.
+**Trabalho envolvido:** Identificação de todos os vendedores históricos, consulta a registros de vendas para datas exatas, padronização dos nomes conforme grafias mais comuns.
 
 ---
 
