@@ -10,3 +10,5 @@ data/outros/
 *.xls
 logs/*.log
 .env
+RELATORIO_ATIVIDADES.md
+RELATORIO_ATIVIDADES.pdf
