@@ -12,7 +12,7 @@ REQUIRED = {"id", "cliente", "canal", "atendente", "conversao", "motivo", "data_
 def extract_leads() -> pd.DataFrame:
     df = pd.read_excel(RAW_PATH / "Leads.xlsx")
 
-    acertos_path = OUTROS_PATH / "acerto_leads.xlsx"
+    acertos_path = OUTROS_PATH / "Acertos_leads.xlsx"
     if acertos_path.exists():
         df_acertos = pd.read_excel(acertos_path)
         ids_acertos = df_acertos["Id"].dropna()
