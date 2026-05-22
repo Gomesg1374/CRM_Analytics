@@ -1,5 +1,7 @@
 # CRM Analytics — Pipeline ETL para Concessionária
 
+**Analista:** Gildo Gomes Guarda
+
 Pipeline de dados automatizado para uma rede de concessionárias de veículos. Lê exportações do CRM (Revenda+), aplica transformações em modelo estrela e carrega em PostgreSQL para análise no Metabase.
 
 ---
