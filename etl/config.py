@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 RAW_PATH    = BASE_DIR / "data" / "raw"
 OUTROS_PATH = BASE_DIR / "data" / "outros"
