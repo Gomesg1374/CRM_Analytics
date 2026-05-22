@@ -1,6 +1,6 @@
 # CRM Analytics — Pipeline ETL para Concessionária
 
-Pipeline de dados automatizado para uma rede de concessionárias de veículos. Lê exportações do CRM (Pipedrive), aplica transformações em modelo estrela e carrega em PostgreSQL para análise no Metabase.
+Pipeline de dados automatizado para uma rede de concessionárias de veículos. Lê exportações do CRM (Revenda+), aplica transformações em modelo estrela e carrega em PostgreSQL para análise no Metabase.
 
 ---
 
@@ -9,7 +9,7 @@ Pipeline de dados automatizado para uma rede de concessionárias de veículos. L
 ```mermaid
 flowchart TD
     subgraph SRC["Fontes de Dados"]
-        CRM["CRM Pipedrive\n(exportação .xlsx)"]
+        CRM["CRM Revenda+\n(exportação .xlsx)"]
         ERP["Sistema Interno\n(estoque, comissões)"]
         MAN["Tabelas de Referência\n(construídas manualmente)"]
     end
