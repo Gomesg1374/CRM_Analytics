@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-CRM Analytics ETL pipeline for a multi-store car dealership. Reads Excel exports from a CRM, transforms them into a star schema, writes Parquet files to `data/gold/`, and loads them into PostgreSQL for Metabase dashboards.
+CRM Analytics ETL pipeline for a multi-store car dealership. Reads Excel exports from a CRM (Revenda+), transforms them into a star schema, writes Parquet files to `data/gold/`, and loads them into PostgreSQL for Metabase dashboards.
 
 ## Commands
 
