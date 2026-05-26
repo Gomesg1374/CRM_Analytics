@@ -44,6 +44,7 @@ def extract_retorno() -> pd.DataFrame:
     ret["id_data"] = pd.to_numeric(ret["data_venda"].dt.strftime("%Y%m%d"), errors="coerce")
 
     ret["valor_financiado"] = pd.to_numeric(ret["valor_financiado"], errors="coerce")
+    ret["tipo_retorno"] = pd.to_numeric(ret["tipo_retorno"], errors="coerce").astype("Int64")
     ret = ret.dropna(subset=["placa", "id_data"])
     ret = ret.drop_duplicates(subset=["placa", "id_data"])
 
