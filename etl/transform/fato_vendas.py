@@ -8,6 +8,7 @@ _OUTPUT_COLS = [
     "valor_venda", "valor_compra", "custos",
     "situacao", "data_compra", "desconto",
     "comissao", "impostos", "lucro", "retorno",
+    "valor_financiado", "tipo_retorno", "financeira",
 ]
 
 
@@ -20,6 +21,7 @@ def build_fato_vendas(
     de_para_vend:  pd.DataFrame,
     dim_veiculos:  pd.DataFrame,
     comissoes:     pd.DataFrame,
+    retorno_fin:   pd.DataFrame,
 ) -> pd.DataFrame:
     fv = vendas_raw.copy()
 
@@ -47,6 +49,17 @@ def build_fato_vendas(
 
     # F1.2: enrich with financial data (R6: left join — fato_vendas never loses rows)
     fv = fv.merge(comissoes, on="id_venda", how="left")
+
+    # Enrich with retorno financeiro — join on placa (normalized) + id_data (left join, R6)
+    fv["_placa_norm"] = normalizar_texto(fv["placa"].fillna(""))
+    fv = fv.merge(
+        retorno_fin,
+        left_on=["_placa_norm", "id_data"],
+        right_on=["placa", "id_data"],
+        how="left",
+        suffixes=("", "_ret"),
+    )
+    fv = fv.drop(columns=["_placa_norm", "placa_ret"], errors="ignore")
 
     present = [c for c in _OUTPUT_COLS if c in fv.columns]
     return fv[present].copy()

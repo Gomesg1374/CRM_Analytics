@@ -17,6 +17,7 @@ _RENAME = {
     "compra":        "valor_compra",
     "lancamentos":   "custos",
     "desconto_venda": "desconto",
+    
 }
 
 

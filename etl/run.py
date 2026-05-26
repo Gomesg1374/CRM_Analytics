@@ -24,6 +24,7 @@ from etl.extract.canais         import extract_canais
 from etl.extract.agendamentos   import extract_agendamentos
 from etl.extract.veiculos       import extract_veiculos
 from etl.extract.comissoes      import extract_comissoes
+from etl.extract.retorno        import extract_retorno
 
 # Transform
 from etl.transform.dim_canal      import build_dim_canal
@@ -112,6 +113,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
     ag_raw      = extract_agendamentos()
     veic_raw    = extract_veiculos()
     com_raw     = extract_comissoes()
+    ret_raw     = extract_retorno()
 
     hist        = base["hist_vendedor_loja"]
     de_para_vend = base["de_para_vend"]
@@ -134,7 +136,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
     print("\n⚙️  FATOS")
     fato_agendamentos  = build_fato_agendamentos(ag_raw, dim_canal, dim_vendedores, hist, de_para_vend)
     fato_leads         = build_fato_leads(leads_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_estagio, fato_agendamentos)
-    fato_vendas        = build_fato_vendas(vendas_raw, canais_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_veiculos, com_raw)
+    fato_vendas        = build_fato_vendas(vendas_raw, canais_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_veiculos, com_raw, ret_raw)
     fato_meta_vendedor, fato_meta_loja = build_fato_metas(base["meta_vendedor"], base["meta_loja"], dim_vendedor_periodo)
 
     # ------------------------------------------------------------------
