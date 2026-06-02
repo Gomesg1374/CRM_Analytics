@@ -4,7 +4,7 @@ from etl.utils import adicionar_vendedor_loja
 _OUTPUT_COLS = [
     "id", "id_vendedor", "id_loja", "id_canal",
     "id_estagio", "id_data", "id_data_ultima_integracao",
-    "convertido_flag", "perdido_flag", "motivo",
+    "convertido_flag", "perdido_flag", "motivo", "link_post",
 ]
 
 
@@ -22,6 +22,7 @@ def build_fato_leads(
     de_para_vend:     pd.DataFrame,
     dim_estagio:      pd.DataFrame,
     fato_agendamentos: pd.DataFrame | None = None,
+    leads_link:        pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     fl = adicionar_vendedor_loja(
         leads_raw, "atendente", "data_criacao",
@@ -44,5 +45,8 @@ def build_fato_leads(
         fl = fl.merge(sdr, on="id", how="left")
         # NULL = sem agendamento (semanticamente correto, não usa -1)
         fl["id_sdr"] = fl["id_sdr"].astype("Int64")
+
+    if leads_link is not None:
+        fl = fl.merge(leads_link[["id", "link_post"]], on="id", how="left")
 
     return fl

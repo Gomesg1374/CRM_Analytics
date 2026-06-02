@@ -14,7 +14,7 @@ import traceback
 
 import pandas as pd
 
-from etl.config import GOLD_PATH
+from etl.config import GOLD_PATH, OUTROS_PATH
 
 # Extract
 from etl.extract.dimensoes_base import extract_dimensoes_base
@@ -118,6 +118,13 @@ def main(load_db: bool = True) -> tuple[int, str]:
     hist        = base["hist_vendedor_loja"]
     de_para_vend = base["de_para_vend"]
 
+    leads_link_path = OUTROS_PATH / "Leads_link.xlsx"
+    if leads_link_path.exists():
+        leads_link = pd.read_excel(leads_link_path, usecols=["Id", "Link_post"])
+        leads_link = leads_link.rename(columns={"Id": "id", "Link_post": "link_post"})
+    else:
+        leads_link = None
+
     # ------------------------------------------------------------------
     # 2. Build dimensions
     # ------------------------------------------------------------------
@@ -135,7 +142,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
     # ------------------------------------------------------------------
     print("\n⚙️  FATOS")
     fato_agendamentos  = build_fato_agendamentos(ag_raw, dim_canal, dim_vendedores, hist, de_para_vend)
-    fato_leads         = build_fato_leads(leads_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_estagio, fato_agendamentos)
+    fato_leads         = build_fato_leads(leads_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_estagio, fato_agendamentos, leads_link)
     fato_vendas        = build_fato_vendas(vendas_raw, canais_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_veiculos, com_raw, ret_raw)
     fato_meta_vendedor, fato_meta_loja = build_fato_metas(base["meta_vendedor"], base["meta_loja"], dim_vendedor_periodo)
 
