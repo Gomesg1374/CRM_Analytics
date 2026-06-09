@@ -31,6 +31,7 @@ def validate(gold_tables: dict, n_vendas_raw: int | None = None) -> int:
     fv  = gold_tables.get("fato_vendas")
     dv  = gold_tables.get("dim_veiculos")
     dd  = gold_tables.get("dim_data")
+    fc  = gold_tables.get("fato_custos_canal")
 
     # Marca: < 5% "desconhecida" excluding returned vehicles
     if dv is not None:
@@ -66,6 +67,15 @@ def validate(gold_tables: dict, n_vendas_raw: int | None = None) -> int:
             "dim_data: sem NULLs em trimestre / semestre / dia_semana / dias_uteis_mes",
             nulls == 0,
             f"{nulls} NULLs",
+        ) else 1
+
+    # Custos canal: 100% dos registros devem ter canal válido
+    if fc is not None:
+        sem_match = fc["id_canal"].eq(-1).sum()
+        failures += 0 if _check(
+            "fato_custos_canal: todos os canais com match em dim_canal",
+            sem_match == 0,
+            f"{sem_match} linha(s) com id_canal=-1",
         ) else 1
 
     # R6: fato_vendas never loses rows from the comissão left join
@@ -121,7 +131,7 @@ def validate(gold_tables: dict, n_vendas_raw: int | None = None) -> int:
     # ----------------------------------------------------------------
     # Summary
     # ----------------------------------------------------------------
-    total_checks = 5 + (1 if not all_parquet_ok else 0)
+    total_checks = 6 + (1 if not all_parquet_ok else 0)
     passed       = total_checks - failures
     print(f"\n{'✅' if failures == 0 else '⚠️ '} Resultado: {passed}/{total_checks} critérios aprovados")
     return failures

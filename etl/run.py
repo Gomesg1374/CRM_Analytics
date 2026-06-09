@@ -25,6 +25,7 @@ from etl.extract.agendamentos   import extract_agendamentos
 from etl.extract.veiculos       import extract_veiculos
 from etl.extract.comissoes      import extract_comissoes
 from etl.extract.retorno        import extract_retorno
+from etl.extract.extract_custos_canal import extract_custos_canal
 
 # Transform
 from etl.transform.dim_canal      import build_dim_canal
@@ -35,7 +36,8 @@ from etl.transform.dim_veiculos   import build_dim_veiculos
 from etl.transform.fato_leads     import build_dim_estagio, build_fato_leads
 from etl.transform.fato_vendas    import build_fato_vendas
 from etl.transform.fato_agendamentos import build_fato_agendamentos
-from etl.transform.fato_metas    import build_fato_metas
+from etl.transform.fato_metas       import build_fato_metas
+from etl.transform.fato_custos_canal import build_fato_custos_canal
 
 from etl.validate import validate
 
@@ -74,8 +76,8 @@ def _build_success_summary(gold_tables: dict, n_vendas_raw: int,
         ok = len(fv) == n_vendas_raw
         lines.append(f"  {'OK' if ok else 'FAIL'}  fato_vendas: {len(fv):,} linhas — {'sem perda no join com comissao' if ok else f'esperado {n_vendas_raw:,}'}")
 
-    passed = 5 - failures
-    lines.append(f"  Resultado: {passed}/5 aprovados")
+    passed = 6 - failures
+    lines.append(f"  Resultado: {passed}/6 aprovados")
 
     lines += ["", "MATCH RATES"]
     for nome, label in [("fato_leads", "Leads"), ("fato_vendas", "Vendas"), ("fato_agendamentos", "Agendamentos")]:
@@ -114,6 +116,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
     veic_raw    = extract_veiculos()
     com_raw     = extract_comissoes()
     ret_raw     = extract_retorno()
+    custos_raw  = extract_custos_canal()
 
     hist        = base["hist_vendedor_loja"]
     de_para_vend = base["de_para_vend"]
@@ -145,6 +148,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
     fato_leads         = build_fato_leads(leads_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_estagio, fato_agendamentos, leads_link)
     fato_vendas        = build_fato_vendas(vendas_raw, canais_raw, dim_canal, dim_vendedores, hist, de_para_vend, dim_veiculos, com_raw, ret_raw)
     fato_meta_vendedor, fato_meta_loja = build_fato_metas(base["meta_vendedor"], base["meta_loja"], dim_vendedor_periodo)
+    fato_custos_canal  = build_fato_custos_canal(custos_raw, dim_canal)
 
     # ------------------------------------------------------------------
     # 4. Save gold Parquets
@@ -163,6 +167,7 @@ def main(load_db: bool = True) -> tuple[int, str]:
         "fato_agendamentos":    fato_agendamentos,
         "fato_meta_vendedor":   fato_meta_vendedor,
         "fato_meta_loja":       fato_meta_loja,
+        "fato_custos_canal":    fato_custos_canal,
     }
     _save_gold(gold_tables)
 

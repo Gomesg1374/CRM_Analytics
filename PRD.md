@@ -56,6 +56,7 @@ Excel (raw/ + outros/)
 | `gerencial_estoque_marca.xlsx` | Código, Marca, Modelo, Ano, Cor, Placa, Tipo | `dim_veiculos.marca` — fonte primária |
 | `Vendas_Marca_YYYY.xlsx` | Código, Dt. Venda, Marca, Modelo, Ano, Cor, Placa, Tipo, Compra, Venda, Lançamentos, Vendedor | `dim_veiculos.marca` — fallback para veículos históricos |
 | `Vendas_comissao_YYYY.xlsx` | Código, Comissão, Impostos, Lucro, Retorno | `fato_vendas.comissao / .impostos / .lucro / .retorno` |
+| `custos_plataforma.xlsx` | Canal, 01/MM/YYYY… (custo mensal por canal) | `fato_custos_canal.custo` — custo mensal por canal de anúncio |
 
 **Chave de junção universal:** `Código` em todos os arquivos de vendas = `id_venda` em `fato_vendas`.
 
@@ -69,9 +70,9 @@ Excel (raw/ + outros/)
 - `dim_veiculos` com `marca` — prioridade: estoque atual → histórico de vendas → "desconhecida" (0% desconhecida sobre veículos ativos)
 - `fato_vendas` com dados financeiros — `comissao`, `impostos`, `lucro`, `retorno` (100% de cobertura)
 - `dim_data` completa com `trimestre`, `semestre`, `dia_semana`, `fim_de_semana`, `dias_uteis_mes`
-- Camada silver persistida (10 Parquets intermediários)
-- 12 Parquets na camada gold (star schema completo)
-- PostgreSQL rodando via Docker (`crm-postgres`, porta 5432), schema `gold` com 12 tabelas carregadas
+- Camada silver persistida (11 Parquets intermediários)
+- 13 Parquets na camada gold (star schema completo)
+- PostgreSQL rodando via Docker (`crm-postgres`, porta 5432), schema `gold` com 13 tabelas carregadas
 - Metabase rodando via Docker (`crm-metabase`, porta 3000), conectado ao PostgreSQL
 - Task Scheduler executa o ETL diariamente às 10:00, iniciando Docker automaticamente se necessário
 - Notificação por e-mail em caso de falha
@@ -89,7 +90,7 @@ Excel (raw/ + outros/)
 
 **Dimensions:** `dim_canal`, `dim_data`, `dim_vendedores`, `dim_lojas`, `dim_veiculos`, `dim_estagio`, `dim_vendedor_periodo`
 
-**Facts:** `fato_leads`, `fato_vendas`, `fato_agendamentos`, `fato_meta_vendedor`, `fato_meta_loja`
+**Facts:** `fato_leads`, `fato_vendas`, `fato_agendamentos`, `fato_meta_vendedor`, `fato_meta_loja`, `fato_custos_canal`
 
 ```
                           dim_data
@@ -106,9 +107,19 @@ dim_canal ── fato_vendas ────┤──── dim_vendedores ──�
             │                │
         dim_canal            │
                              │
-     fato_meta_vendedor ─────┴──── dim_vendedores
-     fato_meta_loja         ────── dim_lojas
+     fato_meta_vendedor ─────┤──── dim_vendedores
+     fato_meta_loja          │──── dim_lojas
+                             │
+dim_canal ── fato_custos_canal ─── dim_data   (granularidade: canal × mês)
 ```
+
+**Métricas derivadas via SQL no Metabase:**
+
+| Métrica | Fórmula |
+|---|---|
+| CPL (Custo Por Lead) | `SUM(custo) / COUNT(leads)` por canal + mês |
+| CPV (Custo Por Venda) | `SUM(custo) / COUNT(leads WHERE convertido_flag=1)` por canal + mês |
+| Custo total por canal | `SUM(custo)` agrupado por `id_canal` |
 
 Foreign key convention: `id_YYYYMMDD` integer → `dim_data.id_data`; todas as FKs de dimensão são inteiros.
 
@@ -137,6 +148,7 @@ Foreign key convention: `id_YYYYMMDD` integer → `dim_data.id_data`; todas as F
 | `dim_data` cobre 2022-01-01 a 2027-12-31 | sem gaps | ✅ |
 | `dim_data` sem NULLs em trimestre/semestre/dia_semana/dias_uteis_mes | 0 NULLs | ✅ |
 | `fato_vendas` não perde linhas no join com comissão (R6) | 0 linhas descartadas | ✅ |
+| `fato_custos_canal` sem canais sem match em `dim_canal` | 0 linhas com `id_canal=-1` | ✅ |
 
 ---
 
@@ -156,7 +168,7 @@ docker run -d --name crm-metabase -p 3000:3000 metabase/metabase:latest
 
 ### Agendamento
 
-`scheduler/run_etl.ps1` é executado diariamente às 10:00 pelo Windows Task Scheduler. O script inicia o Docker Desktop e os containers automaticamente caso não estejam rodando, aguarda o PostgreSQL aceitar conexões e então executa `python -m etl.run`.
+`scheduler/run_etl.ps1` é executado diariamente às 09:40 pelo Windows Task Scheduler. O script inicia o Docker Desktop e os containers automaticamente caso não estejam rodando, aguarda o PostgreSQL aceitar conexões e então executa `python -m etl.run`.
 
 ---
 

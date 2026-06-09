@@ -23,20 +23,20 @@ flowchart TD
     end
 
     subgraph ETL["ETL — Python 3.13"]
-        EX["extract/\n7 módulos"]
-        TR["transform/\n7 dims + 5 fatos"]
+        EX["extract/\n8 módulos"]
+        TR["transform/\n7 dims + 6 fatos"]
         LD["load.py\ntruncate + insert"]
-        VA["validate.py\n5 critérios de aceite"]
+        VA["validate.py\n6 critérios de aceite"]
         NT["notify.py\ne-mail sucesso/falha"]
     end
 
-    subgraph SLV["data/silver  (10 Parquets)"]
-        S["leads · vendas · canais · agendamentos\nveiculos · comissoes · usuarios\nhist_vendedor_loja · meta_vendedor · meta_loja"]
+    subgraph SLV["data/silver  (11 Parquets)"]
+        S["leads · vendas · canais · agendamentos\nveiculos · comissoes · usuarios\nhist_vendedor_loja · meta_vendedor · meta_loja · custos_canal"]
     end
 
-    subgraph GLD["data/gold  (12 Parquets)"]
+    subgraph GLD["data/gold  (13 Parquets)"]
         DIM["7 Dimensões\ndim_canal · dim_data · dim_vendedores\ndim_lojas · dim_veiculos · dim_estagio\ndim_vendedor_periodo"]
-        FAT["5 Fatos\nfato_leads · fato_vendas · fato_agendamentos\nfato_meta_vendedor · fato_meta_loja"]
+        FAT["6 Fatos\nfato_leads · fato_vendas · fato_agendamentos\nfato_meta_vendedor · fato_meta_loja · fato_custos_canal"]
     end
 
     PG[("PostgreSQL 16\nschema: gold\n(Docker)")]
@@ -100,9 +100,10 @@ CRM_Analytics/
 │   │   ├── gerencial_estoque_marca.xlsx
 │   │   ├── Vendas_Marca_2022.xlsx … Vendas_Marca_2026.xlsx
 │   │   ├── Vendas_comissao_2022.xlsx … Vendas_comissao_2026.xlsx
+│   │   ├── custos_plataforma.xlsx
 │   │   └── acerto_leads.xlsx
-│   ├── silver/                     ← Parquets intermediários (10 arquivos)
-│   └── gold/                       ← Parquets finais consumidos pelo Metabase (12 arquivos)
+│   ├── silver/                     ← Parquets intermediários (11 arquivos)
+│   └── gold/                       ← Parquets finais consumidos pelo Metabase (13 arquivos)
 ├── etl/
 │   ├── run.py                      ← Orquestrador principal do pipeline
 │   ├── config.py                   ← Constantes de caminhos e credenciais
@@ -110,14 +111,15 @@ CRM_Analytics/
 │   ├── validate.py                 ← Relatório de qualidade pós-carga
 │   ├── notify.py                   ← Notificações por e-mail
 │   ├── utils.py                    ← Utilitários compartilhados
-│   ├── extract/                    ← 7 módulos de extração (um por entidade)
+│   ├── extract/                    ← 8 módulos de extração (um por entidade)
 │   │   ├── dimensoes_base.py
 │   │   ├── leads.py
 │   │   ├── vendas.py
 │   │   ├── canais.py
 │   │   ├── agendamentos.py
 │   │   ├── veiculos.py
-│   │   └── comissoes.py
+│   │   ├── comissoes.py
+│   │   └── extract_custos_canal.py
 │   └── transform/                  ← Transformações puras (sem I/O)
 │       ├── dim_canal.py
 │       ├── dim_data.py
@@ -127,7 +129,8 @@ CRM_Analytics/
 │       ├── fato_agendamentos.py
 │       ├── fato_leads.py
 │       ├── fato_vendas.py
-│       └── fato_metas.py
+│       ├── fato_metas.py
+│       └── fato_custos_canal.py
 ├── scheduler/
 │   ├── run_etl.ps1                 ← Wrapper PowerShell para o agendador
 │   └── setup_task.ps1              ← Configura a tarefa no Windows Task Scheduler
@@ -216,6 +219,7 @@ Sete módulos leem os arquivos Excel, validam o schema obrigatório e salvam Par
 | `agendamentos.py` | controleagendamentos.xlsx | agendamentos.parquet |
 | `veiculos.py` | gerencial_estoque.xlsx + arquivos de marca | veiculos.parquet |
 | `comissoes.py` | Vendas_comissao_2022.xlsx … 2026.xlsx | comissoes.parquet |
+| `extract_custos_canal.py` | custos_plataforma.xlsx | custos_canal.parquet |
 
 **Correções de leads:** Se o arquivo `data/outros/acerto_leads.xlsx` existir, as linhas com `Id` correspondente são substituídas antes de qualquer processamento.
 
@@ -235,7 +239,7 @@ Funções puras (sem I/O) constroem o modelo estrela a partir dos dados silver.
 | `dim_estagio` | Estágios do funil de leads |
 | `dim_vendedor_periodo` | Histórico vendedor × loja × mês (tabela de auditoria) |
 
-**Fatos (5):**
+**Fatos (6):**
 
 | Tabela | Granularidade | Métricas principais |
 |---|---|---|
@@ -244,6 +248,7 @@ Funções puras (sem I/O) constroem o modelo estrela a partir dos dados silver.
 | `fato_agendamentos` | 1 linha por agendamento | flag_agendamento, flag_visita |
 | `fato_meta_vendedor` | 1 linha por vendedor × mês | meta_qtd |
 | `fato_meta_loja` | 1 linha por loja × mês | meta_qtd |
+| `fato_custos_canal` | 1 linha por canal × mês | custo (R$) — habilita CPL e CPV |
 
 ### 3. Load — Carga no PostgreSQL
 
@@ -251,7 +256,7 @@ Estratégia **truncate + insert**: cada execução apaga e recarrega todas as ta
 
 ### 4. Validate — Validação de Qualidade
 
-Cinco critérios de aceite executados a cada run:
+Seis critérios de aceite executados a cada run:
 
 | Critério | Limiar | O que verifica |
 |---|---|---|
@@ -260,6 +265,7 @@ Cinco critérios de aceite executados a cada run:
 | Cobertura do calendário | 2022–2027 | `dim_data` cobre o intervalo completo |
 | Campos de calendário | 0 nulos | trimestre, semestre, dia_semana, dias_uteis_mes |
 | Integridade do join de comissão | Sem perda de linhas | `fato_vendas` não perde linhas no join com comissoes (R6) |
+| Canais de custo válidos | 0 sem match | `fato_custos_canal` sem `id_canal = -1` |
 
 O relatório de match rates também é exibido: percentual de registros com `id_vendedor = -1` ou `id_loja = -1` por fato.
 
@@ -288,6 +294,7 @@ fato_vendas        ← id_veiculo, id_data, id_vendedor, id_loja, id_canal
 fato_agendamentos  ← id_data_agendamento, id_data_visita, id_vendedor, id_loja, id_canal
 fato_meta_vendedor ← id_vendedor, id_loja, id_data
 fato_meta_loja     ← id_loja, id_data
+fato_custos_canal  ← id_canal, id_data, custo
 ```
 
 ---
@@ -348,7 +355,7 @@ PYTHONIOENCODING=utf-8
 
 ## Agendamento Automático
 
-O script `scheduler/run_etl.ps1` é executado diariamente às **10h** pelo Windows Task Scheduler. Ele:
+O script `scheduler/run_etl.ps1` é executado diariamente às **09:40h** pelo Windows Task Scheduler. Ele:
 
 1. Carrega as variáveis do `.env`
 2. Inicia os contêineres Docker (`crm-postgres`, `crm-metabase`) se não estiverem em execução

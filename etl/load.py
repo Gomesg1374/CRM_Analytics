@@ -24,6 +24,7 @@ TABLE_ORDER = [
     "fato_agendamentos",
     "fato_meta_vendedor",
     "fato_meta_loja",
+    "fato_custos_canal",
 ]
 
 

@@ -32,9 +32,9 @@ The scheduled task (`scheduler/run_etl.ps1`) runs daily at 10:00 via Windows Tas
 
 ```
 data/raw/        ← Excel source files (CRM exports + complementary data)
-data/outros/     ← Supplementary files: gerencial_estoque_marca.xlsx, Vendas_Marca_YYYY.xlsx, Vendas_comissao_YYYY.xlsx
-data/silver/     ← Intermediate Parquets per entity (10 files)
-data/gold/       ← Final star-schema Parquets consumed by Metabase (12 files)
+data/outros/     ← Supplementary files: gerencial_estoque_marca.xlsx, Vendas_Marca_YYYY.xlsx, Vendas_comissao_YYYY.xlsx, custos_plataforma.xlsx
+data/silver/     ← Intermediate Parquets per entity (11 files)
+data/gold/       ← Final star-schema Parquets consumed by Metabase (13 files)
 ```
 
 ### ETL structure
@@ -43,7 +43,7 @@ data/gold/       ← Final star-schema Parquets consumed by Metabase (12 files)
 - `etl/extract/<entity>.py` — reads one Excel source, validates schema, writes to silver
 - `etl/transform/<table>.py` — pure transformation functions, no file I/O
 - `etl/load.py` — truncate + insert into PostgreSQL schema `gold`
-- `etl/validate.py` — post-load quality report (5 acceptance criteria)
+- `etl/validate.py` — post-load quality report (6 acceptance criteria)
 - `etl/notify.py` — sends email notification on completion/failure
 - `etl/config.py` — path constants (`RAW_PATH`, `OTHERS_PATH`, `SILVER_PATH`, `GOLD_PATH`, PG credentials)
 - `etl/utils.py` — shared utilities including `normalizar_texto()`
@@ -52,7 +52,7 @@ data/gold/       ← Final star-schema Parquets consumed by Metabase (12 files)
 
 **Dimensions:** `dim_canal`, `dim_data`, `dim_vendedores`, `dim_lojas`, `dim_veiculos`, `dim_estagio`, `dim_vendedor_periodo`
 
-**Facts:** `fato_leads`, `fato_vendas`, `fato_agendamentos`, `fato_meta_vendedor`, `fato_meta_loja`
+**Facts:** `fato_leads`, `fato_vendas`, `fato_agendamentos`, `fato_meta_vendedor`, `fato_meta_loja`, `fato_custos_canal`
 
 Foreign key convention: `id_YYYYMMDD` integer → `dim_data.id_data`; all dimension FK integers.
 
