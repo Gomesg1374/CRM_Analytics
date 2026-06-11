@@ -27,7 +27,7 @@
 #>
 param(
     [string]$TaskName   = "CRM_Analytics_ETL",
-    [string]$RunTime    = "09:30",
+    [string]$RunTime    = "09:40",
     [string]$ProjectDir = "",
     [switch]$NoDb
 )
